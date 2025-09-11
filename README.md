@@ -328,10 +328,16 @@ Composability. Any tool that outputs text can now speak.
 **Why Python?**  
 Best ecosystem for ML (sentence-transformers, FAISS) and audio (pygame).
 
+## Platform Support
+
+- **macOS**: ✅ Tested daily (uses built-in `say` command)
+- **Linux**: 🤷 Should work (uses `espeak` - untested)
+- **Windows**: 🤷 Might work (SAPI support exists - untested)
+
 ## Requirements
 
 - Python 3.13+
-- macOS, Linux, or WSL
+- macOS (only tested platform)
 - ElevenLabs API key (optional, for premium voices)
 - Internet connection (for ElevenLabs)
 
