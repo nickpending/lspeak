@@ -338,6 +338,7 @@ Best ecosystem for ML (sentence-transformers, FAISS) and audio (pygame).
 
 - Python 3.13+
 - macOS (only tested platform)
+- pygame for audio playback (~15MB, installed automatically via pip/uv)
 - ElevenLabs API key (optional, for premium voices)
 - Internet connection (for ElevenLabs)
 
