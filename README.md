@@ -178,12 +178,28 @@ done
 ```
 
 ### With Claude Code (via [clarvis](https://github.com/nickpending/clarvis))
-```bash
-# Get Jarvis-style updates from your AI pair programmer
-uv tool install git+https://github.com/nickpending/clarvis.git
-echo 'cat | clarvis' > ~/.claude/hooks/stop
-# Hear: "Sir, project auth has encountered an error. Database connection failed."
+
+Get Jarvis-style voice updates from your AI pair programmer. In `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "Stop": [{
+      "matcher": "",
+      "hooks": [{
+        "type": "command",
+        "command": "cat | clarvis"
+      }]
+    }]
+  }
+}
 ```
+
+Now Claude Code speaks through clarvis → lspeak:
+- "Sir, project auth has encountered an error. Database connection failed."
+- "Sir, deployment is complete. All tests passed."
+
+Clarvis uses lspeak's library interface for maximum cache efficiency.
 
 ## How It Works
 
