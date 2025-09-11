@@ -1,8 +1,20 @@
 # lspeak
 
-**Text-to-speech that doesn't talk over itself.**
+<div align="center">
+  
+  **Text-to-speech that doesn't talk over itself**
+  
+  [GitHub](https://github.com/nickpending/lspeak) | [Issues](https://github.com/nickpending/lspeak/issues) | [Roadmap](#roadmap)
 
-A Unix pipe for text-to-speech that queues speech from parallel processes, caches similar phrases semantically, and keeps models loaded for instant responses.
+  [![Python](https://img.shields.io/badge/Python-3.13+-3776AB?style=flat&logo=python)](https://python.org)
+  [![uv](https://img.shields.io/badge/uv-0.7.15+-5A67D8?style=flat)](https://github.com/astral-sh/uv)
+  [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+</div>
+
+---
+
+**lspeak** is a Unix pipe for text-to-speech that queues speech from parallel processes, caches similar phrases semantically, and keeps models loaded for instant responses.
 
 ```bash
 echo "Deploy complete" | lspeak
