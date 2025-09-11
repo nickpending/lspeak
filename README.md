@@ -6,6 +6,7 @@
   
   [GitHub](https://github.com/nickpending/lspeak) | [Issues](https://github.com/nickpending/lspeak/issues) | [Roadmap](#roadmap)
 
+  [![Status](https://img.shields.io/badge/Status-Alpha-orange?style=flat)](#status-alpha)
   [![Python](https://img.shields.io/badge/Python-3.13+-3776AB?style=flat&logo=python)](https://python.org)
   [![uv](https://img.shields.io/badge/uv-0.7.15+-5A67D8?style=flat)](https://github.com/astral-sh/uv)
   [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
