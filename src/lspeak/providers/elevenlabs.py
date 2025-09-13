@@ -6,6 +6,7 @@ import os
 from elevenlabs.client import ElevenLabs
 
 from ..tts.errors import TTSAPIError, TTSAuthError
+from ..tts.models import VoiceSettings
 from .base import TTSProvider
 
 
@@ -73,10 +74,29 @@ class ElevenLabsProvider(TTSProvider):
             voice = voices[0]["id"]
 
         try:
+            # Create voice settings with speaker boost for louder output
+            voice_settings = VoiceSettings(
+                stability=0.79,
+                similarity_boost=0.85,
+                style=0.25,
+                use_speaker_boost=True,  # Boost volume for clearer audio
+                speaking_rate=0.79,
+            )
+
             # Run synchronous ElevenLabs client in thread to avoid blocking event loop
             def _sync_convert():
                 audio_generator = self._client.text_to_speech.convert(
-                    text=text.strip(), voice_id=voice, model_id=model_id
+                    text=text.strip(),
+                    voice_id=voice,
+                    model_id=model_id,
+                    voice_settings=voice_settings.to_dict()
+                    if hasattr(voice_settings, "to_dict")
+                    else {
+                        "stability": voice_settings.stability,
+                        "similarity_boost": voice_settings.similarity_boost,
+                        "style": voice_settings.style,
+                        "use_speaker_boost": voice_settings.use_speaker_boost,
+                    },
                 )
                 # Collect all audio chunks
                 return b"".join(audio_generator)
