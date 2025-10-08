@@ -46,7 +46,7 @@ class ElevenLabsProvider(TTSProvider):
         self,
         text: str,
         voice: str,
-        model_id: str = "eleven_monolingual_v1",
+        model_id: str = "eleven_turbo_v2_5",
     ) -> bytes:
         """Convert text to speech audio bytes.
 
@@ -74,13 +74,13 @@ class ElevenLabsProvider(TTSProvider):
             voice = voices[0]["id"]
 
         try:
-            # Create voice settings with speaker boost for louder output
+            # Create voice settings optimized for natural speech
             voice_settings = VoiceSettings(
-                stability=0.79,
-                similarity_boost=0.85,
-                style=0.25,
+                stability=0.6,  # More natural variation than 0.79
+                similarity_boost=0.95,  # Maximum voice likeness
+                style=0.4,  # More expressive than 0.25
                 use_speaker_boost=True,  # Boost volume for clearer audio
-                speaking_rate=0.79,
+                speaking_rate=1.0,  # Normal speech rate instead of 0.79
             )
 
             # Run synchronous ElevenLabs client in thread to avoid blocking event loop
