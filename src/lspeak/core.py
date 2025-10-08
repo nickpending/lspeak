@@ -77,6 +77,17 @@ async def speak_text(
         ValueError: If text is empty
         KeyError: If provider not found
     """
+    # Auto-disable cache for long text to prevent embedding model segfaults
+    CACHE_TEXT_LIMIT = (
+        500  # Characters - sentence transformers struggle with very long text
+    )
+    if cache and len(text) > CACHE_TEXT_LIMIT:
+        cache = False
+        if debug:
+            logger.debug(
+                f"Auto-disabled cache: text length {len(text)} > {CACHE_TEXT_LIMIT} chars"
+            )
+
     # Task 5.2: Check if daemon should be used
     if use_daemon:
         try:
@@ -98,18 +109,22 @@ async def speak_text(
                     cache=cache,
                     cache_threshold=cache_threshold,
                     debug=debug,
-                    queue=queue
+                    queue=queue,
                 )
 
                 if response["status"] == "success":
                     if debug:
-                        logger.debug(f"Daemon handled request successfully: {response.get('result')}")
+                        logger.debug(
+                            f"Daemon handled request successfully: {response.get('result')}"
+                        )
                     return  # Daemon handled it successfully
 
                 # Task 5.6: If daemon returned error, try restart once
                 if response["status"] == "error":
                     if debug:
-                        logger.debug(f"Daemon returned error: {response.get('error')}, attempting restart")
+                        logger.debug(
+                            f"Daemon returned error: {response.get('error')}, attempting restart"
+                        )
 
                     # Force restart and retry once
                     if await ensure_daemon_running_async(force_restart=True):
@@ -121,7 +136,7 @@ async def speak_text(
                             cache=cache,
                             cache_threshold=cache_threshold,
                             debug=debug,
-                            queue=queue
+                            queue=queue,
                         )
 
                         if response["status"] == "success":
@@ -130,10 +145,14 @@ async def speak_text(
                             return
 
                     if debug:
-                        logger.debug("Daemon restart failed, falling back to direct execution")
+                        logger.debug(
+                            "Daemon restart failed, falling back to direct execution"
+                        )
             else:
                 if debug:
-                    logger.debug("Failed to start daemon, falling back to direct execution")
+                    logger.debug(
+                        "Failed to start daemon, falling back to direct execution"
+                    )
 
         except Exception as e:
             # Task 5.5: Fall back to direct execution on any daemon error
