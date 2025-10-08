@@ -80,7 +80,7 @@ class ElevenLabsProvider(TTSProvider):
                 similarity_boost=0.95,  # Maximum voice likeness
                 style=0.4,  # More expressive than 0.25
                 use_speaker_boost=True,  # Boost volume for clearer audio
-                speaking_rate=1.0,  # Normal speech rate instead of 0.79
+                speaking_rate=0.7,  # Slower, more deliberate pace for podcasts
             )
 
             # Run synchronous ElevenLabs client in thread to avoid blocking event loop
