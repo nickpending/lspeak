@@ -76,11 +76,11 @@ class ElevenLabsProvider(TTSProvider):
         try:
             # Create voice settings optimized for natural speech
             voice_settings = VoiceSettings(
-                stability=0.6,  # More natural variation than 0.79
-                similarity_boost=0.95,  # Maximum voice likeness
+                stability=0.65,  # More natural variation than 0.79
+                similarity_boost=0.75,  # Balance voice likeness with variation
                 style=0.4,  # More expressive than 0.25
                 use_speaker_boost=True,  # Boost volume for clearer audio
-                speaking_rate=0.7,  # Slower, more deliberate pace for podcasts
+                speaking_rate=0.87,  # Faster, more natural pace
             )
 
             # Run synchronous ElevenLabs client in thread to avoid blocking event loop
