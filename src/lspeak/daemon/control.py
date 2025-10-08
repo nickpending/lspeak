@@ -69,53 +69,119 @@ async def daemon_status() -> dict[str, Any]:
 
 
 def daemon_stop() -> bool:
-    """Stop daemon gracefully using SIGTERM.
+    """Stop daemon gracefully using SIGTERM, with SIGKILL fallback.
 
-    Gets daemon PID from status and sends SIGTERM signal.
-    Waits up to 1 second for socket to disappear.
+    First tries to get daemon PID from socket status.
+    If that fails, scans running processes for lspeak.daemon.
+    Sends SIGTERM, then SIGKILL if needed.
 
     Returns:
         True if daemon was stopped successfully, False otherwise
     """
+    import subprocess
+
+    daemon_pids = []
+
     try:
-        # Get daemon status to find PID
+        # Method 1: Get daemon status via socket to find PID
         status = asyncio.run(daemon_status())
+        if status["running"] and status["pid"]:
+            daemon_pids.append(status["pid"])
+            print(f"Found daemon via socket: PID {status['pid']}")
+    except Exception:
+        # Socket communication failed, continue to process scanning
+        pass
 
-        if not status["running"] or not status["pid"]:
-            # Daemon not running
-            return True
+    # Method 2: Scan running processes for orphaned lspeak.daemon processes
+    try:
+        result = subprocess.run(
+            ["ps", "aux"], capture_output=True, text=True, check=True
+        )
+        found_via_ps = []
+        for line in result.stdout.splitlines():
+            if "lspeak.daemon" in line and "grep" not in line:
+                parts = line.split()
+                if len(parts) > 1:
+                    try:
+                        pid = int(parts[1])
+                        if pid not in daemon_pids:
+                            daemon_pids.append(pid)
+                            found_via_ps.append(pid)
+                    except ValueError:
+                        continue
+        if found_via_ps:
+            print(f"Found orphaned daemon processes: {found_via_ps}")
+    except Exception:
+        # Process scanning failed, continue with what we have
+        pass
 
-        pid = status["pid"]
-        socket_path = get_socket_path()
+    if not daemon_pids:
+        # No daemon processes found
+        print("No daemon processes found")
+        return True
 
-        # Send SIGTERM for graceful shutdown
+    print(f"Sending SIGTERM to PIDs: {daemon_pids}")
+    # Send SIGTERM to all found daemon processes
+    for pid in daemon_pids:
         try:
             os.kill(pid, signal.SIGTERM)
         except ProcessLookupError:
             # Process already dead
-            pass
+            print(f"PID {pid} already dead")
+            continue
         except PermissionError:
             # Not our process or permission denied
+            print(f"Permission denied for PID {pid}")
             return False
 
-        # Wait for socket to disappear (up to 1 second)
-        for _ in range(10):
-            if not socket_path.exists():
-                return True
-            time.sleep(0.1)
+    # Wait for processes to terminate (give SIGTERM time to work)
+    socket_path = get_socket_path()
+    print("Waiting for graceful shutdown...")
+    for i in range(20):  # Wait up to 2 seconds for graceful shutdown
+        still_running = []
+        for pid in daemon_pids:
+            try:
+                os.kill(pid, 0)  # Check if process exists
+                still_running.append(pid)
+            except ProcessLookupError:
+                # Process terminated
+                continue
 
-        # Socket still exists, try to remove it
+        if not still_running:
+            print(f"SIGTERM successful - processes stopped after {(i + 1) * 0.1:.1f}s")
+            break
+        time.sleep(0.1)
+    else:
+        # Loop completed without break - processes still running
+        print(f"SIGTERM failed - {len(still_running)} processes still running after 2s")
+
+    # If processes still running, force kill with SIGKILL
+    killed_pids = []
+    for pid in daemon_pids:
         try:
-            if socket_path.exists():
-                socket_path.unlink()
-        except Exception:
-            pass
+            os.kill(pid, 0)  # Check if still exists
+            os.kill(pid, signal.SIGKILL)  # Force kill
+            killed_pids.append(pid)
+        except ProcessLookupError:
+            # Process already dead
+            continue
+        except PermissionError:
+            # Not our process
+            print(f"Permission denied for SIGKILL on PID {pid}")
+            return False
 
-        return True
+    if killed_pids:
+        print(f"Used SIGKILL on PIDs: {killed_pids}")
 
+    # Clean up stale socket if it exists
+    try:
+        if socket_path.exists():
+            socket_path.unlink()
+            print("Cleaned up stale socket")
     except Exception:
-        # Unexpected error during stop
-        return False
+        pass
+
+    return True
 
 
 def daemon_restart() -> bool:

@@ -14,12 +14,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def signal_handler(daemon_task: asyncio.Task) -> None:
-    """Handle SIGTERM for graceful shutdown."""
-    logger.info("Received shutdown signal")
-    daemon_task.cancel()
-
-
 async def main() -> None:
     """Run the daemon server."""
     daemon = LspeakDaemon()
@@ -27,11 +21,15 @@ async def main() -> None:
     # Set up signal handling for graceful shutdown
     daemon_task = asyncio.create_task(daemon.start())
 
-    # Handle SIGTERM
-    def handle_sigterm() -> None:
-        signal_handler(daemon_task)
+    # Handle SIGTERM using asyncio's proper signal handling
+    loop = asyncio.get_running_loop()
 
-    signal.signal(signal.SIGTERM, lambda s, f: handle_sigterm())
+    def handle_sigterm() -> None:
+        logger.info("Received shutdown signal")
+        daemon_task.cancel()
+
+    # Use asyncio's signal handler instead of signal.signal()
+    loop.add_signal_handler(signal.SIGTERM, handle_sigterm)
 
     try:
         await daemon_task
