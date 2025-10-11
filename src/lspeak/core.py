@@ -2,10 +2,9 @@
 
 import logging
 
-from .audio.player import AudioPlayer
-from .cache.manager import SemanticCacheManager
 from .providers import ProviderRegistry
 from .tts.errors import TTSAPIError, TTSAuthError
+from .tts.pipeline import TTSPipeline
 
 logger = logging.getLogger(__name__)
 
@@ -159,78 +158,20 @@ async def speak_text(
             if debug:
                 logger.debug(f"Daemon failed ({e}), falling back to direct execution")
 
-    # Task 5.5: Fallback to direct execution (existing code)
+    # Task 5.5: Fallback to direct execution using TTSPipeline
     if debug and use_daemon:
         logger.debug("Using direct execution (fallback path)")
 
-    # Get provider and create instance
-    provider_class = ProviderRegistry.get(provider)
-    provider_instance = provider_class()
+    # Create pipeline with on-demand instance creation
+    pipeline = TTSPipeline()
 
-    audio_data = None
-    cache_manager = None
-
-    # Initialize cache if enabled
-    if cache:
-        try:
-            cache_manager = SemanticCacheManager(similarity_threshold=cache_threshold)
-            if debug:
-                logger.debug(f"Cache enabled with threshold {cache_threshold}")
-
-            # Check cache for similar text
-            if debug:
-                logger.debug(f"Checking cache for text: '{text[:50]}...'")
-
-            cached_audio_path = await cache_manager.get_cached_audio(
-                text, provider, voice_id or "default"
-            )
-
-            if cached_audio_path:
-                if debug:
-                    logger.debug(
-                        f"Cache hit! Using cached audio from: {cached_audio_path}"
-                    )
-                # Read cached audio
-                audio_data = cached_audio_path.read_bytes()
-            else:
-                if debug:
-                    logger.debug("Cache miss - will generate new audio")
-        except Exception as e:
-            if debug:
-                logger.debug(
-                    f"Cache initialization/lookup failed: {e}. Proceeding without cache."
-                )
-            # Continue without cache on error
-            cache_manager = None
-
-    # Generate new audio if not found in cache
-    if audio_data is None:
-        if debug:
-            logger.debug(f"Calling {provider} TTS API for synthesis")
-        audio_data = await provider_instance.synthesize(text, voice=voice_id or "")
-
-        # Cache the generated audio if cache is enabled
-        if cache_manager:
-            try:
-                if debug:
-                    logger.debug("Caching generated audio for future use")
-                await cache_manager.cache_audio(
-                    text, provider, voice_id or "default", audio_data
-                )
-                if debug:
-                    logger.debug("Audio successfully cached")
-            except Exception as e:
-                if debug:
-                    logger.debug(
-                        f"Failed to cache audio: {e}. Continuing without caching."
-                    )
-                # Continue even if caching fails
-
-    # Create audio player
-    player = AudioPlayer()
-
-    # Either save to file or play through speakers
-    if output_file:
-        player.save_to_file(audio_data, output_file)
-    else:
-        player.play_bytes(audio_data)
+    # Process through unified pipeline
+    await pipeline.process(
+        text=text,
+        provider=provider,
+        voice=voice_id,
+        output=output_file,
+        cache=cache,
+        cache_threshold=cache_threshold,
+        debug=debug,
+    )

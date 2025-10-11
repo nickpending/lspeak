@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Any
 
 from lspeak.daemon.paths import get_runtime_dir, get_socket_path
+from lspeak.tts.pipeline import TTSPipeline
 
 logger = logging.getLogger(__name__)
 
@@ -131,94 +132,33 @@ class LspeakDaemon:
             return {"error": str(e)}
 
     async def _process_speech(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Process speech synthesis (extracted from handle_speak)."""
+        """Process speech synthesis using TTSPipeline orchestrator."""
         try:
-            # Import required modules (but NOT speak_text which reloads models!)
-            from ..audio.player import AudioPlayer
-            from ..providers import ProviderRegistry
-
             # Extract parameters with defaults
             text = params.get("text", "")
             provider = params.get("provider", "elevenlabs")
             voice = params.get("voice")
             output = params.get("output")
             cache = params.get("cache", True)
+            cache_threshold = params.get("cache_threshold", 0.95)
             debug = params.get("debug", False)
 
-            # Validate required parameters
-            if not text or not text.strip():
-                return {"error": "Text cannot be empty"}
+            # Create pipeline with pre-loaded instances for sub-second response
+            pipeline = TTSPipeline(
+                cache_manager=self.cache_manager,
+                audio_player=self.audio_player,
+            )
 
-            # Get provider and create instance
-            provider_class = ProviderRegistry.get(provider)
-            provider_instance = provider_class()
-
-            audio_data = None
-            cache_hit = False
-
-            # Use the PRE-LOADED cache manager (the whole point of the daemon!)
-            if cache and self.cache_manager:
-                try:
-                    if debug:
-                        logger.debug(
-                            f"Checking cache with pre-loaded models for: '{text[:50]}...'"
-                        )
-
-                    # Check cache for similar text using PRE-LOADED models
-                    cached_audio_path = await self.cache_manager.get_cached_audio(
-                        text, provider, voice or "default"
-                    )
-
-                    if cached_audio_path:
-                        if debug:
-                            logger.debug(
-                                f"Cache hit! Using cached audio from: {cached_audio_path}"
-                            )
-                        # Read cached audio
-                        audio_data = cached_audio_path.read_bytes()
-                        cache_hit = True
-                    else:
-                        if debug:
-                            logger.debug("Cache miss - will generate new audio")
-                except Exception as e:
-                    logger.error(f"Cache lookup failed: {e}")
-
-            # Generate new audio if not found in cache
-            if audio_data is None:
-                if debug:
-                    logger.debug(f"Calling {provider} TTS API for synthesis")
-                audio_data = await provider_instance.synthesize(text, voice=voice or "")
-
-                # Cache the generated audio using PRE-LOADED models
-                if cache and self.cache_manager:
-                    try:
-                        if debug:
-                            logger.debug("Caching generated audio for future use")
-                        await self.cache_manager.cache_audio(
-                            text, provider, voice or "default", audio_data
-                        )
-                    except Exception as e:
-                        logger.error(f"Failed to cache audio: {e}")
-
-            # Initialize audio player once on first use (avoids 1.3s pygame.mixer.init() on every call)
-            if self.audio_player is None:
-                self.audio_player = AudioPlayer()
-
-            # Either save to file or play through speakers
-            if output:
-                self.audio_player.save_to_file(audio_data, output)
-                return {
-                    "played": False,
-                    "saved": output,
-                    "cached": cache_hit,
-                }
-            else:
-                await self.audio_player.play_bytes_async(audio_data)
-                return {
-                    "played": True,
-                    "saved": None,
-                    "cached": cache_hit,
-                }
+            # Process through unified pipeline
+            return await pipeline.process(
+                text=text,
+                provider=provider,
+                voice=voice,
+                output=output,
+                cache=cache,
+                cache_threshold=cache_threshold,
+                debug=debug,
+            )
 
         except Exception as e:
             logger.error(f"Error in _process_speech: {e}")
