@@ -11,10 +11,64 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
+
 from lspeak.daemon.paths import get_runtime_dir, get_socket_path
 from lspeak.tts.pipeline import TTSPipeline
 
 logger = logging.getLogger(__name__)
+
+
+# API Error handling (prismis pattern)
+class APIError(HTTPException):
+    """Base API error with consistent format."""
+
+    def __init__(self, status_code: int, message: str):
+        super().__init__(status_code=status_code, detail=message)
+        self.message = message
+
+
+class ValidationError(APIError):
+    """422 - Request validation failed."""
+
+    def __init__(self, message: str):
+        super().__init__(422, message)
+
+
+class ServerError(APIError):
+    """500 - Internal server error."""
+
+    def __init__(self, message: str):
+        super().__init__(500, message)
+
+
+# Pydantic models for HTTP API
+class SpeakRequest(BaseModel):
+    """Request model for /speak endpoint."""
+
+    text: str = Field(..., description="Text to synthesize and speak")
+    provider: str = Field(default="elevenlabs", description="TTS provider to use")
+    voice: str | None = Field(default=None, description="Voice to use")
+    output: str | None = Field(default=None, description="Output file path")
+    cache: bool = Field(default=True, description="Enable semantic caching")
+    cache_threshold: float = Field(
+        default=0.95, description="Similarity threshold for cache hits"
+    )
+    queue: bool = Field(
+        default=True, description="Queue request or process immediately"
+    )
+    debug: bool = Field(default=False, description="Enable debug logging")
+
+
+class APIResponse(BaseModel):
+    """Standard API response envelope (prismis pattern)."""
+
+    success: bool = Field(..., description="Whether the operation succeeded")
+    message: str = Field(..., description="Human-readable message")
+    data: dict[str, Any] | None = Field(None, description="Response data if any")
 
 
 @dataclass
@@ -37,12 +91,144 @@ class LspeakDaemon:
         self.models_loaded = False
         self.cache_manager: Any | None = None
         self.audio_player: Any | None = None  # Initialize on first use
+        self.start_time = datetime.now()
 
         # Queue infrastructure
         self.speech_queue: asyncio.Queue[QueueItem] = asyncio.Queue()
         self.queue_processor_task: asyncio.Task[None] | None = None
         self.current_item: QueueItem | None = None
         self.queue_items: list[QueueItem] = []
+
+        # HTTP API infrastructure
+        self.http_port = self._get_http_port()
+        self.app: FastAPI | None = None
+        self.http_server_task: asyncio.Task[None] | None = None
+
+        # Initialize FastAPI app if HTTP port configured
+        if self.http_port:
+            self.app = FastAPI(
+                title="lspeak HTTP API",
+                description="Text-to-speech API with semantic caching",
+                version="0.1.0",
+            )
+            self._setup_exception_handlers()
+            self._setup_http_routes()
+
+    def _get_http_port(self) -> int | None:
+        """Get HTTP port from environment variable."""
+        port_str = os.getenv("LSPEAK_HTTP_PORT")
+        if not port_str:
+            return None
+
+        try:
+            port = int(port_str)
+            if 1 <= port <= 65535:
+                return port
+            logger.warning(f"Invalid port number {port}, must be 1-65535")
+            return None
+        except ValueError:
+            logger.warning(f"Invalid port value '{port_str}', must be integer")
+            return None
+
+    def _setup_exception_handlers(self) -> None:
+        """Setup FastAPI exception handlers for consistent error formatting."""
+        if not self.app:
+            return
+
+        @self.app.exception_handler(APIError)
+        async def api_error_handler(request: Request, exc: APIError) -> JSONResponse:
+            """Handle custom APIError exceptions with consistent format."""
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"success": False, "message": exc.message, "data": None},
+            )
+
+        @self.app.exception_handler(RequestValidationError)
+        async def validation_error_handler(
+            request: Request, exc: RequestValidationError
+        ) -> JSONResponse:
+            """Handle FastAPI validation errors with consistent format."""
+            first_error = exc.errors()[0]
+            field = " -> ".join(str(loc) for loc in first_error["loc"])
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "success": False,
+                    "message": f"Validation error in {field}: {first_error['msg']}",
+                    "data": None,
+                },
+            )
+
+    def _setup_http_routes(self) -> None:
+        """Setup FastAPI routes for HTTP API."""
+        if not self.app:
+            return
+
+        @self.app.post("/speak", response_model=APIResponse)
+        async def speak_endpoint(request: SpeakRequest) -> APIResponse:
+            """Queue or process speech synthesis request."""
+            try:
+                result = await self.handle_speak(request.model_dump())
+
+                # Check if error occurred
+                if result.get("error"):
+                    raise ServerError(result["error"])
+
+                # Format response based on whether queued or immediate
+                if result.get("queued"):
+                    return APIResponse(
+                        success=True,
+                        message="Speech queued successfully",
+                        data={
+                            "queue_id": result["queue_id"],
+                            "queue_position": result["queue_position"],
+                            "timestamp": result["timestamp"],
+                        },
+                    )
+                else:
+                    return APIResponse(
+                        success=True,
+                        message="Speech processed successfully",
+                        data={
+                            "played": result.get("played"),
+                            "saved": result.get("saved"),
+                            "cached": result.get("cached"),
+                        },
+                    )
+            except APIError:
+                raise
+            except Exception as e:
+                raise ServerError(f"Failed to process speech: {e!s}") from e
+
+        @self.app.get("/status", response_model=APIResponse)
+        async def status_endpoint() -> APIResponse:
+            """Get daemon status including uptime and model state."""
+            try:
+                uptime = (datetime.now() - self.start_time).total_seconds()
+                return APIResponse(
+                    success=True,
+                    message="Daemon running",
+                    data={
+                        "pid": os.getpid(),
+                        "models_loaded": self.models_loaded,
+                        "uptime": uptime,
+                    },
+                )
+            except Exception as e:
+                raise ServerError(f"Failed to get status: {e!s}") from e
+
+        @self.app.get("/queue", response_model=APIResponse)
+        async def queue_endpoint() -> APIResponse:
+            """Get current queue status."""
+            try:
+                result = await self.handle_queue_status()
+                return APIResponse(
+                    success=True,
+                    message=f"Queue has {result['queue_size']} items",
+                    data=result,
+                )
+            except Exception as e:
+                raise ServerError(f"Failed to get queue status: {e!s}") from e
 
     async def handle_client(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
@@ -218,6 +404,29 @@ class LspeakDaemon:
             "voice": item.params.get("voice", "default"),
         }
 
+    async def _start_http_server(self) -> None:
+        """Start Uvicorn HTTP server in same event loop."""
+        if not self.app or not self.http_port:
+            return
+
+        try:
+            import uvicorn
+
+            config = uvicorn.Config(
+                app=self.app,
+                host="127.0.0.1",  # localhost only for security
+                port=self.http_port,
+                log_level="warning",  # Reduce noise in logs
+                access_log=False,  # Disable access logs
+            )
+
+            server = uvicorn.Server(config)
+            await server.serve()
+        except Exception as e:
+            logger.error(f"HTTP server failed to start: {e}")
+            logger.error("Unix socket daemon will continue running without HTTP API")
+            # Don't propagate - let Unix socket continue operating
+
     async def start(self) -> None:
         """Start the daemon server with model loading."""
         try:
@@ -232,11 +441,11 @@ class LspeakDaemon:
                 )
                 fcntl.flock(self.lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 logger.info("✓ Acquired exclusive daemon lock")
-            except BlockingIOError:
+            except BlockingIOError as e:
                 logger.error("Another daemon is already running (lock held)")
                 if self.lock_fd is not None:
                     os.close(self.lock_fd)
-                raise RuntimeError("Another daemon process is already running")
+                raise RuntimeError("Another daemon process is already running") from e
 
             # Load models once at startup for fast response
             logger.info("Loading models (this may take a moment)...")
@@ -294,6 +503,18 @@ class LspeakDaemon:
             logger.info(f"✓ Daemon listening on {self.socket_path}")
             logger.info(f"✓ PID: {os.getpid()}")
 
+            # Start HTTP server if configured
+            if self.http_port and self.app:
+                self.http_server_task = asyncio.create_task(self._start_http_server())
+                logger.info(
+                    f"✓ HTTP API listening on http://localhost:{self.http_port}"
+                )
+                logger.info(
+                    f"✓ API docs available at http://localhost:{self.http_port}/docs"
+                )
+            else:
+                logger.info("HTTP API disabled (set LSPEAK_HTTP_PORT to enable)")
+
             # Serve forever
             async with server:
                 await server.serve_forever()
@@ -302,16 +523,12 @@ class LspeakDaemon:
             logger.error(f"Failed to start daemon: {e}")
             # Release lock if we acquired it
             if self.lock_fd is not None:
-                try:
+                with contextlib.suppress(Exception):
                     os.close(self.lock_fd)
-                except Exception:
-                    pass
             raise
         finally:
             # Always clean up lock on exit
             if self.lock_fd is not None:
-                try:
+                with contextlib.suppress(Exception):
                     os.close(self.lock_fd)
                     logger.debug("Released daemon lock")
-                except Exception:
-                    pass

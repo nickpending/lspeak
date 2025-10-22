@@ -149,7 +149,7 @@ class TTSPipeline:
                         )
 
                     cached_audio_path = await self.cache_manager.get_cached_audio(
-                        text, provider, voice or "default"
+                        text, provider, voice or ""
                     )
 
                     if cached_audio_path:
@@ -183,7 +183,7 @@ class TTSPipeline:
                     if debug:
                         logger.debug("Caching generated audio for future use")
                     await self.cache_manager.cache_audio(
-                        text, provider, voice or "default", audio_data
+                        text, provider, voice or "", audio_data
                     )
                     if debug:
                         logger.debug("Audio successfully cached")
