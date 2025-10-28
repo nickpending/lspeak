@@ -9,17 +9,56 @@ import os
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
+from ipaddress import ip_address
 from typing import Any
+from urllib.parse import urlparse
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, Security
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 
 from lspeak.daemon.paths import get_runtime_dir, get_socket_path
 from lspeak.tts.pipeline import TTSPipeline
 
 logger = logging.getLogger(__name__)
+
+
+# Custom CORS middleware for private network validation
+class PrivateNetworkCORS(CORSMiddleware):
+    """CORS middleware that only allows private network origins.
+
+    Uses Python's ipaddress module to validate that request origins come from:
+    - localhost (127.0.0.1, ::1, 'localhost')
+    - RFC1918 private networks (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+    - Link-local (169.254.0.0/16)
+
+    This prevents stolen API key attacks from external sites while allowing
+    LAN and localhost access for development and home network use.
+    """
+
+    def is_allowed_origin(self, origin: str) -> bool:
+        """Check if origin is from a private network."""
+        try:
+            parsed = urlparse(origin)
+            host = parsed.hostname
+
+            if not host:
+                return False
+
+            # Allow localhost by name
+            if host in ("localhost", "127.0.0.1", "::1"):
+                return True
+
+            # Check if IP is private using Python stdlib
+            ip = ip_address(host)
+            return ip.is_private
+
+        except (ValueError, AttributeError):
+            # Invalid origin format or IP address
+            return False
 
 
 # API Error handling (prismis pattern)
@@ -36,6 +75,13 @@ class ValidationError(APIError):
 
     def __init__(self, message: str):
         super().__init__(422, message)
+
+
+class AuthenticationError(APIError):
+    """401 - Authentication failed (correct HTTP semantics, not prismis's 403)."""
+
+    def __init__(self, message: str = "Invalid API key"):
+        super().__init__(401, message)
 
 
 class ServerError(APIError):
@@ -69,6 +115,39 @@ class APIResponse(BaseModel):
     success: bool = Field(..., description="Whether the operation succeeded")
     message: str = Field(..., description="Human-readable message")
     data: dict[str, Any] | None = Field(None, description="Response data if any")
+
+
+# API key authentication (prismis pattern with X-API-Key header)
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+async def verify_api_key(api_key: str | None = Security(api_key_header)) -> str | None:
+    """Verify API key from X-API-Key header (optional authentication).
+
+    Args:
+        api_key: API key from X-API-Key header
+
+    Returns:
+        The validated API key if auth is enabled, None if auth disabled
+
+    Raises:
+        AuthenticationError: 401 if API key is invalid or missing when required
+    """
+    # Check if authentication is enabled via environment variable
+    expected_key = os.getenv("LSPEAK_API_KEY")
+
+    # If no API key configured, authentication is disabled (backward compatible)
+    if not expected_key:
+        return None
+
+    # Authentication is enabled - validate the provided key
+    if not api_key:
+        raise AuthenticationError("Missing API key. Please provide X-API-Key header")
+
+    if api_key != expected_key:
+        raise AuthenticationError("Invalid API key")
+
+    return api_key
 
 
 @dataclass
@@ -111,6 +190,7 @@ class LspeakDaemon:
                 description="Text-to-speech API with semantic caching",
                 version="0.1.0",
             )
+            self._setup_cors()
             self._setup_exception_handlers()
             self._setup_http_routes()
 
@@ -129,6 +209,27 @@ class LspeakDaemon:
         except ValueError:
             logger.warning(f"Invalid port value '{port_str}', must be integer")
             return None
+
+    def _setup_cors(self) -> None:
+        """Configure CORS middleware for private network access.
+
+        Uses PrivateNetworkCORS to allow requests from:
+        - localhost (127.0.0.1, ::1, 'localhost')
+        - RFC1918 private networks (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+        - Link-local addresses (169.254.0.0/16)
+
+        This prevents stolen API key attacks from external sites.
+        """
+        if not self.app:
+            return
+
+        # Use custom middleware with IP-based validation (more robust than regex)
+        self.app.add_middleware(
+            PrivateNetworkCORS,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
     def _setup_exception_handlers(self) -> None:
         """Setup FastAPI exception handlers for consistent error formatting."""
@@ -164,7 +265,11 @@ class LspeakDaemon:
         if not self.app:
             return
 
-        @self.app.post("/speak", response_model=APIResponse)
+        @self.app.post(
+            "/speak",
+            response_model=APIResponse,
+            dependencies=[Depends(verify_api_key)],
+        )
         async def speak_endpoint(request: SpeakRequest) -> APIResponse:
             """Queue or process speech synthesis request."""
             try:
@@ -200,7 +305,11 @@ class LspeakDaemon:
             except Exception as e:
                 raise ServerError(f"Failed to process speech: {e!s}") from e
 
-        @self.app.get("/status", response_model=APIResponse)
+        @self.app.get(
+            "/status",
+            response_model=APIResponse,
+            dependencies=[Depends(verify_api_key)],
+        )
         async def status_endpoint() -> APIResponse:
             """Get daemon status including uptime and model state."""
             try:
@@ -217,7 +326,11 @@ class LspeakDaemon:
             except Exception as e:
                 raise ServerError(f"Failed to get status: {e!s}") from e
 
-        @self.app.get("/queue", response_model=APIResponse)
+        @self.app.get(
+            "/queue",
+            response_model=APIResponse,
+            dependencies=[Depends(verify_api_key)],
+        )
         async def queue_endpoint() -> APIResponse:
             """Get current queue status."""
             try:

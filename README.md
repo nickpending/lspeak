@@ -132,7 +132,7 @@ import asyncio
 async def notify_user():
     # Simple usage
     await speak("Tests passed")
-    
+
     # With options
     await speak(
         "Deploy complete",
@@ -151,6 +151,85 @@ To use lspeak as a library in your project:
 cd your-project
 uv add git+https://github.com/nickpending/lspeak.git
 ```
+
+## HTTP API Usage
+
+The lspeak daemon can optionally expose an HTTP API for remote access or integration with non-Python tools:
+
+```bash
+# Start daemon with HTTP API on port 7777
+LSPEAK_HTTP_PORT=7777 lspeak --daemon-start
+
+# Optional: Secure with API key authentication
+LSPEAK_HTTP_PORT=7777 LSPEAK_API_KEY=your_secret_key lspeak --daemon-start
+```
+
+### Using curl
+
+```bash
+# Speak text
+curl -X POST http://localhost:7777/speak \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Build complete", "provider": "system"}'
+
+# With API key authentication
+curl -X POST http://localhost:7777/speak \
+  -H "X-API-Key: your_secret_key" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Build complete", "provider": "system"}'
+
+# Check daemon status
+curl http://localhost:7777/status
+
+# Check queue status
+curl http://localhost:7777/queue
+```
+
+### Using Python httpx
+
+```python
+import httpx
+import asyncio
+
+async def speak_via_http():
+    async with httpx.AsyncClient() as client:
+        # Simple speak request
+        response = await client.post(
+            "http://localhost:7777/speak",
+            json={"text": "Deploy complete", "provider": "system"}
+        )
+        result = response.json()
+        print(f"Success: {result['success']}")
+
+        # With API key authentication
+        response = await client.post(
+            "http://localhost:7777/speak",
+            headers={"X-API-Key": "your_secret_key"},
+            json={
+                "text": "Build successful",
+                "provider": "elevenlabs",
+                "voice": "Rachel",
+                "cache": True
+            }
+        )
+
+        # Check queue status
+        status = await client.get("http://localhost:7777/queue")
+        print(status.json())
+
+asyncio.run(speak_via_http())
+```
+
+**API Endpoints:**
+- `POST /speak` - Queue speech synthesis (returns immediately)
+- `GET /status` - Get daemon status (uptime, models loaded)
+- `GET /queue` - Get current queue status
+- `GET /docs` - Interactive API documentation (FastAPI auto-generated)
+
+**Authentication:**
+- No auth required by default (localhost only)
+- Set `LSPEAK_API_KEY` env var to require `X-API-Key` header on all requests
+- Returns 401 for missing/invalid API keys when auth enabled
 
 ## Real-World Usage
 

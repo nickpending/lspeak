@@ -487,3 +487,377 @@ class TestHTTPAPIIntegration:
             if test_socket.exists():
                 test_socket.unlink()
             os.environ.pop("LSPEAK_HTTP_PORT", None)
+
+    @pytest.mark.asyncio
+    async def test_authentication_required_when_api_key_set(self) -> None:
+        """
+        INVARIANT: When LSPEAK_API_KEY is set, requests without X-API-Key header return 401
+        BREAKS: Unauthorized access to TTS API
+        """
+        test_port = 17783
+        os.environ["LSPEAK_HTTP_PORT"] = str(test_port)
+        os.environ["LSPEAK_API_KEY"] = "test-secret-key-123"
+
+        daemon = LspeakDaemon()
+        test_id = f"{os.getpid()}-17783"
+        test_socket = Path(f"/tmp/test-lspeak-{test_id}.sock")
+        test_lock = Path(f"/tmp/test-lspeak-{test_id}.lock")
+        daemon.socket_path = test_socket
+        daemon.lock_path = test_lock
+
+        if test_socket.exists():
+            test_socket.unlink()
+
+        daemon_task = asyncio.create_task(daemon.start())
+
+        try:
+            # Wait for HTTP server
+            http_ready = False
+            for _ in range(200):  # 20 seconds max
+                if daemon_task.done():
+                    await daemon_task
+                try:
+                    async with httpx.AsyncClient() as client:
+                        response = await client.get(
+                            f"http://localhost:{test_port}/status", timeout=1.0
+                        )
+                        # Will get 401 but server is ready
+                        if response.status_code in (200, 401):
+                            http_ready = True
+                            break
+                except (httpx.ConnectError, httpx.TimeoutException):
+                    pass
+                await asyncio.sleep(0.1)
+
+            assert http_ready, "HTTP server did not start within timeout"
+
+            # Test all endpoints without API key - should return 401
+            async with httpx.AsyncClient() as client:
+                # Test /speak endpoint
+                response = await client.post(
+                    f"http://localhost:{test_port}/speak",
+                    json={"text": "test", "provider": "system"},
+                    timeout=5.0,
+                )
+                assert response.status_code == 401, (
+                    "/speak should return 401 without API key"
+                )
+                data = response.json()
+                assert data["success"] is False
+                assert "API key" in data["message"]
+
+                # Test /status endpoint
+                response = await client.get(
+                    f"http://localhost:{test_port}/status", timeout=5.0
+                )
+                assert response.status_code == 401, (
+                    "/status should return 401 without API key"
+                )
+                data = response.json()
+                assert data["success"] is False
+                assert "API key" in data["message"]
+
+                # Test /queue endpoint
+                response = await client.get(
+                    f"http://localhost:{test_port}/queue", timeout=5.0
+                )
+                assert response.status_code == 401, (
+                    "/queue should return 401 without API key"
+                )
+                data = response.json()
+                assert data["success"] is False
+                assert "API key" in data["message"]
+
+        finally:
+            daemon_task.cancel()
+            try:
+                await daemon_task
+            except asyncio.CancelledError:
+                pass
+            if test_socket.exists():
+                test_socket.unlink()
+            os.environ.pop("LSPEAK_HTTP_PORT", None)
+            os.environ.pop("LSPEAK_API_KEY", None)
+
+    @pytest.mark.asyncio
+    async def test_authentication_succeeds_with_valid_api_key(self) -> None:
+        """
+        INVARIANT: Requests with valid X-API-Key header return 200 when auth enabled
+        BREAKS: Legitimate clients can't access API
+        """
+        test_port = 17784
+        api_key = "test-valid-key-456"
+        os.environ["LSPEAK_HTTP_PORT"] = str(test_port)
+        os.environ["LSPEAK_API_KEY"] = api_key
+
+        daemon = LspeakDaemon()
+        test_id = f"{os.getpid()}-17784"
+        test_socket = Path(f"/tmp/test-lspeak-{test_id}.sock")
+        test_lock = Path(f"/tmp/test-lspeak-{test_id}.lock")
+        daemon.socket_path = test_socket
+        daemon.lock_path = test_lock
+
+        if test_socket.exists():
+            test_socket.unlink()
+
+        daemon_task = asyncio.create_task(daemon.start())
+
+        try:
+            # Wait for HTTP server
+            http_ready = False
+            for _ in range(200):
+                if daemon_task.done():
+                    await daemon_task
+                try:
+                    async with httpx.AsyncClient() as client:
+                        response = await client.get(
+                            f"http://localhost:{test_port}/status",
+                            headers={"X-API-Key": api_key},
+                            timeout=1.0,
+                        )
+                        if response.status_code == 200:
+                            http_ready = True
+                            break
+                except (httpx.ConnectError, httpx.TimeoutException):
+                    pass
+                await asyncio.sleep(0.1)
+
+            assert http_ready, "HTTP server did not start within timeout"
+
+            # Test all endpoints with valid API key - should return 200
+            async with httpx.AsyncClient() as client:
+                # Test /status endpoint
+                response = await client.get(
+                    f"http://localhost:{test_port}/status",
+                    headers={"X-API-Key": api_key},
+                    timeout=5.0,
+                )
+                assert response.status_code == 200, (
+                    "/status should return 200 with valid API key"
+                )
+                data = response.json()
+                assert data["success"] is True
+
+                # Test /queue endpoint
+                response = await client.get(
+                    f"http://localhost:{test_port}/queue",
+                    headers={"X-API-Key": api_key},
+                    timeout=5.0,
+                )
+                assert response.status_code == 200, (
+                    "/queue should return 200 with valid API key"
+                )
+                data = response.json()
+                assert data["success"] is True
+
+                # Test /speak endpoint (queued to avoid blocking)
+                response = await client.post(
+                    f"http://localhost:{test_port}/speak",
+                    headers={"X-API-Key": api_key},
+                    json={"text": "test", "provider": "system", "queue": True},
+                    timeout=5.0,
+                )
+                assert response.status_code == 200, (
+                    "/speak should return 200 with valid API key"
+                )
+                data = response.json()
+                assert data["success"] is True
+
+        finally:
+            daemon_task.cancel()
+            try:
+                await daemon_task
+            except asyncio.CancelledError:
+                pass
+            if test_socket.exists():
+                test_socket.unlink()
+            os.environ.pop("LSPEAK_HTTP_PORT", None)
+            os.environ.pop("LSPEAK_API_KEY", None)
+
+    @pytest.mark.asyncio
+    async def test_authentication_fails_with_invalid_api_key(self) -> None:
+        """
+        INVARIANT: Requests with invalid X-API-Key header return 401
+        BREAKS: Unauthorized access with wrong key
+        """
+        test_port = 17785
+        os.environ["LSPEAK_HTTP_PORT"] = str(test_port)
+        os.environ["LSPEAK_API_KEY"] = "correct-key-789"
+
+        daemon = LspeakDaemon()
+        test_id = f"{os.getpid()}-17785"
+        test_socket = Path(f"/tmp/test-lspeak-{test_id}.sock")
+        test_lock = Path(f"/tmp/test-lspeak-{test_id}.lock")
+        daemon.socket_path = test_socket
+        daemon.lock_path = test_lock
+
+        if test_socket.exists():
+            test_socket.unlink()
+
+        daemon_task = asyncio.create_task(daemon.start())
+
+        try:
+            # Wait for HTTP server
+            http_ready = False
+            for _ in range(200):
+                if daemon_task.done():
+                    await daemon_task
+                try:
+                    async with httpx.AsyncClient() as client:
+                        response = await client.get(
+                            f"http://localhost:{test_port}/status", timeout=1.0
+                        )
+                        if response.status_code in (200, 401):
+                            http_ready = True
+                            break
+                except (httpx.ConnectError, httpx.TimeoutException):
+                    pass
+                await asyncio.sleep(0.1)
+
+            assert http_ready, "HTTP server did not start within timeout"
+
+            # Test with wrong API key - should return 401
+            async with httpx.AsyncClient() as client:
+                wrong_key = "wrong-key-999"
+                response = await client.get(
+                    f"http://localhost:{test_port}/status",
+                    headers={"X-API-Key": wrong_key},
+                    timeout=5.0,
+                )
+                assert response.status_code == 401, (
+                    "Should return 401 with invalid API key"
+                )
+                data = response.json()
+                assert data["success"] is False
+                assert "Invalid API key" in data["message"]
+
+        finally:
+            daemon_task.cancel()
+            try:
+                await daemon_task
+            except asyncio.CancelledError:
+                pass
+            if test_socket.exists():
+                test_socket.unlink()
+            os.environ.pop("LSPEAK_HTTP_PORT", None)
+            os.environ.pop("LSPEAK_API_KEY", None)
+
+    @pytest.mark.asyncio
+    async def test_cors_headers_present_on_localhost_origin(self) -> None:
+        """
+        INVARIANT: CORS headers allow localhost origins (any port)
+        BREAKS: Browser-based clients can't access API
+        """
+        test_port = 17786
+        os.environ["LSPEAK_HTTP_PORT"] = str(test_port)
+
+        daemon = LspeakDaemon()
+        test_id = f"{os.getpid()}-17786"
+        test_socket = Path(f"/tmp/test-lspeak-{test_id}.sock")
+        test_lock = Path(f"/tmp/test-lspeak-{test_id}.lock")
+        daemon.socket_path = test_socket
+        daemon.lock_path = test_lock
+
+        if test_socket.exists():
+            test_socket.unlink()
+
+        daemon_task = asyncio.create_task(daemon.start())
+
+        try:
+            # Wait for HTTP server
+            http_ready = False
+            for _ in range(200):
+                if daemon_task.done():
+                    await daemon_task
+                try:
+                    async with httpx.AsyncClient() as client:
+                        response = await client.get(
+                            f"http://localhost:{test_port}/status", timeout=1.0
+                        )
+                        if response.status_code == 200:
+                            http_ready = True
+                            break
+                except (httpx.ConnectError, httpx.TimeoutException):
+                    pass
+                await asyncio.sleep(0.1)
+
+            assert http_ready, "HTTP server did not start within timeout"
+
+            # Test CORS headers with Origin header
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"http://localhost:{test_port}/status",
+                    headers={"Origin": "http://localhost:3000"},
+                    timeout=5.0,
+                )
+
+                assert response.status_code == 200
+
+                # Verify CORS headers present
+                assert "access-control-allow-origin" in response.headers, (
+                    "CORS headers should be present with Origin header"
+                )
+                assert "access-control-allow-credentials" in response.headers
+
+                # Verify localhost origin is allowed
+                assert (
+                    response.headers["access-control-allow-origin"]
+                    == "http://localhost:3000"
+                )
+
+                # Test OPTIONS preflight request
+                response = await client.options(
+                    f"http://localhost:{test_port}/speak",
+                    headers={
+                        "Origin": "http://localhost:8080",
+                        "Access-Control-Request-Method": "POST",
+                    },
+                    timeout=5.0,
+                )
+
+                # OPTIONS should return 200 and include CORS headers
+                assert response.status_code == 200
+                assert "access-control-allow-methods" in response.headers
+
+                # Test private network IPs (RFC1918) are allowed
+                private_ips = [
+                    "http://192.168.1.100:3000",  # 192.168.0.0/16
+                    "http://10.0.0.50:8080",  # 10.0.0.0/8
+                    "http://172.16.5.10:5000",  # 172.16.0.0/12
+                ]
+
+                for origin in private_ips:
+                    response = await client.get(
+                        f"http://localhost:{test_port}/status",
+                        headers={"Origin": origin},
+                        timeout=5.0,
+                    )
+                    assert response.status_code == 200, f"Failed for origin {origin}"
+                    assert "access-control-allow-origin" in response.headers, (
+                        f"CORS headers missing for private IP {origin}"
+                    )
+                    assert response.headers["access-control-allow-origin"] == origin
+
+                # Test that external IPs are rejected (should not have CORS headers)
+                response = await client.get(
+                    f"http://localhost:{test_port}/status",
+                    headers={"Origin": "http://93.184.216.34:3000"},  # example.com IP
+                    timeout=5.0,
+                )
+                # Request succeeds but origin should not be in allowed list
+                assert response.status_code == 200
+                # CORS middleware returns null for disallowed origins
+                assert (
+                    "access-control-allow-origin" not in response.headers
+                    or response.headers.get("access-control-allow-origin") == "null"
+                )
+
+        finally:
+            daemon_task.cancel()
+            try:
+                await daemon_task
+            except asyncio.CancelledError:
+                pass
+            if test_socket.exists():
+                test_socket.unlink()
+            os.environ.pop("LSPEAK_HTTP_PORT", None)
