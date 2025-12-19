@@ -54,6 +54,7 @@ async def speak_text(
     debug: bool = False,
     use_daemon: bool = True,
     queue: bool = True,
+    model: str | None = None,
 ) -> None:
     """Convert text to speech and play or save the audio.
 
@@ -77,14 +78,14 @@ async def speak_text(
         KeyError: If provider not found
     """
     # Auto-disable cache for long text to prevent embedding model segfaults
-    CACHE_TEXT_LIMIT = (
+    cache_text_limit = (
         500  # Characters - sentence transformers struggle with very long text
     )
-    if cache and len(text) > CACHE_TEXT_LIMIT:
+    if cache and len(text) > cache_text_limit:
         cache = False
         if debug:
             logger.debug(
-                f"Auto-disabled cache: text length {len(text)} > {CACHE_TEXT_LIMIT} chars"
+                f"Auto-disabled cache: text length {len(text)} > {cache_text_limit} chars"
             )
 
     # Task 5.2: Check if daemon should be used
@@ -109,6 +110,7 @@ async def speak_text(
                     cache_threshold=cache_threshold,
                     debug=debug,
                     queue=queue,
+                    model=model,
                 )
 
                 if response["status"] == "success":
@@ -136,6 +138,7 @@ async def speak_text(
                             cache_threshold=cache_threshold,
                             debug=debug,
                             queue=queue,
+                            model=model,
                         )
 
                         if response["status"] == "success":
@@ -174,4 +177,5 @@ async def speak_text(
         cache=cache,
         cache_threshold=cache_threshold,
         debug=debug,
+        model=model,
     )

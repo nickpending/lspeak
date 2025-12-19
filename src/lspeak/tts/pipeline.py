@@ -85,6 +85,7 @@ class TTSPipeline:
         cache: bool,
         cache_threshold: float = 0.95,
         debug: bool = False,
+        model: str | None = None,
     ) -> dict[str, Any]:
         """Process complete TTS workflow from text to audio output.
 
@@ -172,7 +173,15 @@ class TTSPipeline:
             try:
                 if debug:
                     logger.debug(f"Calling {provider} TTS API for synthesis")
-                audio_data = await provider_instance.synthesize(text, voice=voice or "")
+                # Pass model_id if specified, otherwise provider uses default
+                if model:
+                    audio_data = await provider_instance.synthesize(
+                        text, voice=voice or "", model_id=model
+                    )
+                else:
+                    audio_data = await provider_instance.synthesize(
+                        text, voice=voice or ""
+                    )
             except Exception:
                 # Let provider errors bubble up
                 raise

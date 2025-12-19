@@ -107,6 +107,10 @@ class SpeakRequest(BaseModel):
         default=True, description="Queue request or process immediately"
     )
     debug: bool = Field(default=False, description="Enable debug logging")
+    model: str | None = Field(
+        default=None,
+        description="ElevenLabs model ID (e.g., eleven_turbo_v2_5, eleven_v3)",
+    )
 
 
 class APIResponse(BaseModel):
@@ -441,6 +445,7 @@ class LspeakDaemon:
             cache = params.get("cache", True)
             cache_threshold = params.get("cache_threshold", 0.95)
             debug = params.get("debug", False)
+            model = params.get("model")
 
             # Create pipeline with pre-loaded instances for sub-second response
             pipeline = TTSPipeline(
@@ -457,6 +462,7 @@ class LspeakDaemon:
                 cache=cache,
                 cache_threshold=cache_threshold,
                 debug=debug,
+                model=model,
             )
 
         except Exception as e:

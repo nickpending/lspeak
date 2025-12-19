@@ -74,14 +74,27 @@ class ElevenLabsProvider(TTSProvider):
             voice = voices[0]["id"]
 
         try:
-            # Create voice settings optimized for natural speech
-            voice_settings = VoiceSettings(
-                stability=0.65,  # More natural variation than 0.79
-                similarity_boost=0.75,  # Balance voice likeness with variation
-                style=0.4,  # More expressive than 0.25
-                use_speaker_boost=True,  # Boost volume for clearer audio
-                speaking_rate=0.87,  # Faster, more natural pace
-            )
+            # v3 models require different voice settings (stability must be 0.0, 0.5, or 1.0)
+            is_v3 = model_id.startswith("eleven_v3") if model_id else False
+
+            if is_v3:
+                # v3 settings: 0.5 = Natural balance
+                voice_settings = VoiceSettings(
+                    stability=0.5,  # v3 requires: 0.0=Creative, 0.5=Natural, 1.0=Robust
+                    similarity_boost=0.75,
+                    style=0.4,
+                    use_speaker_boost=True,
+                    speaking_rate=0.87,
+                )
+            else:
+                # Turbo/Flash settings optimized for natural speech
+                voice_settings = VoiceSettings(
+                    stability=0.65,
+                    similarity_boost=0.75,
+                    style=0.4,
+                    use_speaker_boost=True,
+                    speaking_rate=0.87,
+                )
 
             # Run synchronous ElevenLabs client in thread to avoid blocking event loop
             def _sync_convert():

@@ -87,6 +87,12 @@ def speak(
     queue_status: bool = typer.Option(
         False, "--queue-status", help="Show queue status and exit"
     ),
+    model: str | None = typer.Option(
+        None,
+        "-m",
+        "--model",
+        help="ElevenLabs model ID (e.g., eleven_turbo_v2_5, eleven_v3)",
+    ),
 ) -> None:
     """Convert text to speech using AI voices."""
     # Configure logging for debug mode
@@ -258,6 +264,7 @@ def speak(
                 cache_threshold=cache_threshold,
                 debug=debug,
                 queue=not no_queue,  # Invert no_queue flag for queue parameter
+                model=model,
             )
         )
 
