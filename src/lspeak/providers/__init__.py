@@ -24,6 +24,7 @@ class ProviderRegistry:
     """
 
     _providers: ClassVar[dict[str, type["TTSProvider"]]] = {}
+    _instances: ClassVar[dict[str, "TTSProvider"]] = {}
 
     @classmethod
     def register(cls, name: str, provider_class: type["TTSProvider"]) -> None:
@@ -54,6 +55,27 @@ class ProviderRegistry:
                 f"Provider '{name}' not found. Available providers: {available}"
             )
         return cls._providers[name]
+
+    @classmethod
+    def get_instance(cls, name: str) -> "TTSProvider":
+        """Get a cached provider instance by name.
+
+        Creates the instance on first call, returns cached instance after.
+        Keeps models warm in memory across requests.
+
+        Args:
+            name: Name of the provider
+
+        Returns:
+            Cached provider instance
+
+        Raises:
+            KeyError: If provider name not found
+        """
+        if name not in cls._instances:
+            provider_class = cls.get(name)
+            cls._instances[name] = provider_class()
+        return cls._instances[name]
 
 
 # Register providers

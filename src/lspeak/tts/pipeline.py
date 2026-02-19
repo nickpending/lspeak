@@ -116,10 +116,9 @@ class TTSPipeline:
         if not text or not text.strip():
             raise ValueError("Text cannot be empty")
 
-        # Get provider and create instance
+        # Get cached provider instance (model stays warm in memory)
         try:
-            provider_class = ProviderRegistry.get(provider)
-            provider_instance = provider_class()
+            provider_instance = ProviderRegistry.get_instance(provider)
         except KeyError:
             raise KeyError(f"Provider '{provider}' not found") from None
 
