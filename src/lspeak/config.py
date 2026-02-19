@@ -27,6 +27,9 @@ provider = "kokoro"
 # ElevenLabs: use `lspeak --list-voices --provider elevenlabs`
 voice = "af_heart"
 
+# Compute device for local models: "auto", "mps" (Apple Silicon), "cuda", "cpu"
+device = "auto"
+
 [http]
 # Bind address: "127.0.0.1" = localhost only, "0.0.0.0" = allow LAN access
 host = "127.0.0.1"
@@ -53,6 +56,7 @@ class TTSConfig:
 
     provider: str
     voice: str
+    device: str
 
 
 @dataclass(frozen=True)
@@ -149,6 +153,7 @@ def load_config() -> LspeakConfig:
         tts=TTSConfig(
             provider=os.getenv("LSPEAK_PROVIDER", tts["provider"]),
             voice=os.getenv("LSPEAK_VOICE", tts["voice"]),
+            device=os.getenv("LSPEAK_DEVICE", tts.get("device", "auto")),
         ),
         http=HTTPConfig(
             host=os.getenv("LSPEAK_HTTP_HOST", http_cfg["host"]),

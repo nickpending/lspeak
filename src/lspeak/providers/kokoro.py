@@ -2,18 +2,23 @@
 
 import asyncio
 import io
+import logging
 
 import soundfile as sf
+import torch
 from kokoro import KPipeline
 
+from ..config import load_config
 from .base import TTSProvider
+
+logger = logging.getLogger(__name__)
 
 
 class KokoroProvider(TTSProvider):
     """Kokoro TTS provider using local neural speech synthesis.
 
-    Uses the Kokoro-82M model for CPU-based text-to-speech generation.
-    No API key required — runs entirely locally.
+    Uses the Kokoro-82M model for GPU-accelerated (MPS/CUDA) or CPU-based
+    text-to-speech generation. No API key required — runs entirely locally.
     """
 
     def __init__(self, lang_code: str = "a") -> None:
@@ -23,7 +28,28 @@ class KokoroProvider(TTSProvider):
             lang_code: Language code for phonemizer. 'a' = American English.
         """
         self._lang_code = lang_code
-        self._pipeline = KPipeline(lang_code=lang_code)
+        device = self._resolve_device()
+        logger.info(f"Kokoro using device: {device}")
+        self._pipeline = KPipeline(lang_code=lang_code, device=device)
+
+    @staticmethod
+    def _resolve_device() -> str:
+        """Resolve compute device from config.
+
+        Config value 'auto' selects the best available device.
+        Explicit values ('mps', 'cuda', 'cpu') are passed through.
+        """
+        config = load_config()
+        device = config.tts.device
+
+        if device == "auto":
+            if torch.cuda.is_available():
+                return "cuda"
+            if torch.backends.mps.is_available():
+                return "mps"
+            return "cpu"
+
+        return device
 
     async def synthesize(self, text: str, voice: str = "af_heart") -> bytes:
         """Convert text to speech using Kokoro neural TTS.
