@@ -3,9 +3,6 @@
 import logging
 
 from .config import load_config
-from .providers import ProviderRegistry
-from .tts.errors import TTSAPIError, TTSAuthError
-from .tts.pipeline import TTSPipeline
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +22,9 @@ async def list_available_voices(provider: str | None = None) -> None:
     """
     config = load_config()
     provider = provider or config.tts.provider
+
+    from .providers import ProviderRegistry
+    from .tts.errors import TTSAPIError, TTSAuthError
 
     try:
         provider_class = ProviderRegistry.get(provider)
@@ -176,6 +176,9 @@ async def speak_text(
     # Task 5.5: Fallback to direct execution using TTSPipeline
     if debug and use_daemon:
         logger.debug("Using direct execution (fallback path)")
+
+    # Lazy import — only needed for direct execution fallback
+    from .tts.pipeline import TTSPipeline
 
     # Create pipeline with on-demand instance creation
     pipeline = TTSPipeline()

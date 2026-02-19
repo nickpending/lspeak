@@ -8,9 +8,6 @@ from pathlib import Path
 import typer
 
 from .config import load_config
-from .core import list_available_voices, speak_text
-from .models_manager import download_models, ensure_models_available
-from .tts.errors import TTSAPIError, TTSAuthError
 
 app = typer.Typer(help="Convert text to speech using AI voices")
 
@@ -191,6 +188,8 @@ def speak(
 
     # Handle --download-models flag first
     if download_models_flag:
+        from .models_manager import download_models
+
         download_models()
         raise typer.Exit(0)
 
@@ -200,10 +199,14 @@ def speak(
 
     # Ensure models are available before continuing (sets offline mode if cached)
     if cache:  # Only check if cache is enabled
+        from .models_manager import ensure_models_available
+
         ensure_models_available()
 
     # Handle --list-voices flag
     if list_voices:
+        from .core import list_available_voices
+
         try:
             asyncio.run(list_available_voices(provider))
         except Exception as e:
@@ -255,6 +258,9 @@ def speak(
 
     # Convert text to speech
     try:
+        from .core import speak_text
+        from .tts.errors import TTSAPIError, TTSAuthError
+
         # Convert Path to str for output_file parameter
         output_file = str(output) if output else None
         asyncio.run(
