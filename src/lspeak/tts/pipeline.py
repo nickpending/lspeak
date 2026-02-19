@@ -5,12 +5,16 @@ a unified TTS workflow that eliminates code duplication between daemon and
 direct execution paths.
 """
 
+from __future__ import annotations
+
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..audio.player import AudioPlayer
-from ..cache.manager import SemanticCacheManager
 from ..providers import ProviderRegistry
+
+if TYPE_CHECKING:
+    from ..cache.manager import SemanticCacheManager
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +134,8 @@ class TTSPipeline:
             # Create cache manager on-demand if not pre-loaded
             if self.cache_manager is None:
                 try:
+                    from ..cache.manager import SemanticCacheManager
+
                     self.cache_manager = SemanticCacheManager(
                         similarity_threshold=cache_threshold
                     )
