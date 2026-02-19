@@ -7,6 +7,7 @@ from pathlib import Path
 
 import typer
 
+from .config import load_config
 from .core import list_available_voices, speak_text
 from .models_manager import download_models, ensure_models_available
 from .tts.errors import TTSAPIError, TTSAuthError
@@ -52,16 +53,14 @@ def speak(
         None, "-o", "--output", help="Save output to file instead of playing"
     ),
     voice: str | None = typer.Option(
-        None, "-v", "--voice", help="Voice ID to use for speech synthesis"
+        None, "-v", "--voice", help="Voice ID (from config if omitted)"
     ),
-    provider: str = typer.Option(
-        "elevenlabs", "-p", "--provider", help="TTS provider to use"
+    provider: str | None = typer.Option(
+        None, "-p", "--provider", help="TTS provider (from config if omitted)"
     ),
-    cache: bool = typer.Option(
-        True, "--cache/--no-cache", help="Enable or disable semantic caching"
-    ),
-    cache_threshold: float = typer.Option(
-        0.95, "--cache-threshold", help="Similarity threshold for cache hits (0.0-1.0)"
+    no_cache: bool = typer.Option(False, "--no-cache", help="Disable semantic caching"),
+    cache_threshold: float | None = typer.Option(
+        None, "--cache-threshold", help="Similarity threshold for cache hits (0.0-1.0)"
     ),
     debug: bool = typer.Option(
         False, "--debug", help="Show verbose error messages and cache activity"
@@ -91,7 +90,7 @@ def speak(
         None,
         "-m",
         "--model",
-        help="ElevenLabs model ID (e.g., eleven_turbo_v2_5, eleven_v3)",
+        help="Model ID (e.g., eleven_turbo_v2_5 for ElevenLabs)",
     ),
 ) -> None:
     """Convert text to speech using AI voices."""
@@ -195,6 +194,10 @@ def speak(
         download_models()
         raise typer.Exit(0)
 
+    # Resolve config values for flags not provided
+    config = load_config()
+    cache = not no_cache if no_cache else config.cache.enabled
+
     # Ensure models are available before continuing (sets offline mode if cached)
     if cache:  # Only check if cache is enabled
         ensure_models_available()
@@ -208,7 +211,7 @@ def speak(
                 typer.echo(f"Debug - Failed to list voices: {e!r}", err=True)
             else:
                 typer.echo(f"Error: Failed to list voices: {e}", err=True)
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
         raise typer.Exit(0)
     # Get text from argument, file, or stdin (in priority order)
     if text is None:
@@ -220,7 +223,7 @@ def speak(
                     typer.echo(f"Debug - File not found: {file} ({e!r})", err=True)
                 else:
                     typer.echo(f"Error: File not found: {file}", err=True)
-                raise typer.Exit(1)
+                raise typer.Exit(1) from None
             except PermissionError as e:
                 if debug:
                     typer.echo(f"Debug - Permission denied: {file} ({e!r})", err=True)
@@ -228,7 +231,7 @@ def speak(
                     typer.echo(
                         f"Error: Permission denied reading file: {file}", err=True
                     )
-                raise typer.Exit(1)
+                raise typer.Exit(1) from None
             except UnicodeDecodeError as e:
                 if debug:
                     typer.echo(f"Debug - Decode error: {file} ({e!r})", err=True)
@@ -236,7 +239,7 @@ def speak(
                     typer.echo(
                         f"Error: Unable to decode file as text: {file}", err=True
                     )
-                raise typer.Exit(1)
+                raise typer.Exit(1) from None
         elif not sys.stdin.isatty():
             text = sys.stdin.read().strip()
 
@@ -248,7 +251,7 @@ def speak(
             typer.echo(f"Debug - Text processing error: {e!r}", err=True)
         else:
             typer.echo(f"Error: {e}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     # Convert text to speech
     try:
@@ -277,34 +280,34 @@ def speak(
             typer.echo(f"Debug - Authentication error: {e!r}", err=True)
         else:
             typer.echo(f"Error: {e}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
     except TTSAPIError as e:
         if debug:
             typer.echo(f"Debug - TTS API error: {e!r}", err=True)
         else:
             typer.echo(f"Error: {e}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
     except OSError as e:
         if debug:
             typer.echo(f"Debug - File system error: {e!r}", err=True)
         else:
             typer.echo(f"Error: Failed to save audio file: {e}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
     except RuntimeError as e:
         if debug:
             typer.echo(f"Debug - Audio playback error: {e!r}", err=True)
         else:
             typer.echo(f"Error: Failed to play audio: {e}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
     except ValueError as e:
         if debug:
             typer.echo(f"Debug - Text processing error: {e!r}", err=True)
         else:
             typer.echo(f"Error: {e}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
     except Exception as e:
         if debug:
             typer.echo(f"Debug - Unexpected error: {e!r}", err=True)
         else:
             typer.echo("Error: An unexpected error occurred", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None

@@ -20,6 +20,7 @@ from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 
+from lspeak.config import load_config
 from lspeak.daemon.paths import get_runtime_dir, get_socket_path
 from lspeak.tts.pipeline import TTSPipeline
 
@@ -96,12 +97,19 @@ class SpeakRequest(BaseModel):
     """Request model for /speak endpoint."""
 
     text: str = Field(..., description="Text to synthesize and speak")
-    provider: str = Field(default="elevenlabs", description="TTS provider to use")
-    voice: str | None = Field(default=None, description="Voice to use")
+    provider: str | None = Field(
+        default=None, description="TTS provider (from config if omitted)"
+    )
+    voice: str | None = Field(
+        default=None, description="Voice ID (from config if omitted)"
+    )
     output: str | None = Field(default=None, description="Output file path")
-    cache: bool = Field(default=True, description="Enable semantic caching")
-    cache_threshold: float = Field(
-        default=0.95, description="Similarity threshold for cache hits"
+    cache: bool | None = Field(
+        default=None, description="Enable semantic caching (from config if omitted)"
+    )
+    cache_threshold: float | None = Field(
+        default=None,
+        description="Similarity threshold for cache hits (from config if omitted)",
     )
     queue: bool = Field(
         default=True, description="Queue request or process immediately"
@@ -109,7 +117,7 @@ class SpeakRequest(BaseModel):
     debug: bool = Field(default=False, description="Enable debug logging")
     model: str | None = Field(
         default=None,
-        description="ElevenLabs model ID (e.g., eleven_turbo_v2_5, eleven_v3)",
+        description="Model ID (e.g., eleven_turbo_v2_5 for ElevenLabs)",
     )
 
 
@@ -183,6 +191,7 @@ class LspeakDaemon:
         self.queue_items: list[QueueItem] = []
 
         # HTTP API infrastructure
+        self.http_host = self._get_http_host()
         self.http_port = self._get_http_port()
         self.app: FastAPI | None = None
         self.http_server_task: asyncio.Task[None] | None = None
@@ -198,21 +207,15 @@ class LspeakDaemon:
             self._setup_exception_handlers()
             self._setup_http_routes()
 
-    def _get_http_port(self) -> int | None:
-        """Get HTTP port from environment variable."""
-        port_str = os.getenv("LSPEAK_HTTP_PORT")
-        if not port_str:
-            return None
+    def _get_http_host(self) -> str:
+        """Get HTTP bind address from config (env var override supported)."""
+        config = load_config()
+        return config.http.host
 
-        try:
-            port = int(port_str)
-            if 1 <= port <= 65535:
-                return port
-            logger.warning(f"Invalid port number {port}, must be 1-65535")
-            return None
-        except ValueError:
-            logger.warning(f"Invalid port value '{port_str}', must be integer")
-            return None
+    def _get_http_port(self) -> int | None:
+        """Get HTTP port from config (env var override supported)."""
+        config = load_config()
+        return config.http.port
 
     def _setup_cors(self) -> None:
         """Configure CORS middleware for private network access.
@@ -437,13 +440,22 @@ class LspeakDaemon:
     async def _process_speech(self, params: dict[str, Any]) -> dict[str, Any]:
         """Process speech synthesis using TTSPipeline orchestrator."""
         try:
-            # Extract parameters with defaults
+            # Extract parameters, resolve from config when not provided
+            config = load_config()
             text = params.get("text", "")
-            provider = params.get("provider", "elevenlabs")
-            voice = params.get("voice")
+            provider = params.get("provider") or config.tts.provider
+            voice = params.get("voice") or config.tts.voice
             output = params.get("output")
-            cache = params.get("cache", True)
-            cache_threshold = params.get("cache_threshold", 0.95)
+            cache = (
+                params.get("cache")
+                if params.get("cache") is not None
+                else config.cache.enabled
+            )
+            cache_threshold = (
+                params.get("cache_threshold")
+                if params.get("cache_threshold") is not None
+                else config.cache.threshold
+            )
             debug = params.get("debug", False)
             model = params.get("model")
 
@@ -533,7 +545,7 @@ class LspeakDaemon:
 
             config = uvicorn.Config(
                 app=self.app,
-                host="127.0.0.1",  # localhost only for security
+                host=self.http_host,
                 port=self.http_port,
                 log_level="warning",  # Reduce noise in logs
                 access_log=False,  # Disable access logs

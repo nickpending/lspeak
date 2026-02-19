@@ -7,11 +7,11 @@ from .core import speak_text
 
 async def speak(
     text: str,
-    provider: str = "elevenlabs",
+    provider: str | None = None,
     voice: str | None = None,
     output: str | Path | None = None,
-    cache: bool = True,
-    cache_threshold: float = 0.95,
+    cache: bool | None = None,
+    cache_threshold: float | None = None,
     use_daemon: bool = True,
     queue: bool = True,
     debug: bool = False,
@@ -20,11 +20,11 @@ async def speak(
 
     Args:
         text: Text to speak
-        provider: TTS provider name
-        voice: Voice ID/name (provider-specific)
+        provider: TTS provider name (from config if omitted)
+        voice: Voice ID/name (from config if omitted)
         output: File path to save audio (if None, plays audio)
-        cache: Whether to use semantic caching
-        cache_threshold: Similarity threshold for cache hits
+        cache: Whether to use semantic caching (from config if omitted)
+        cache_threshold: Similarity threshold for cache hits (from config if omitted)
         use_daemon: Whether to use daemon for faster response (default True)
         queue: Whether to queue speech in daemon for serial playback (default True)
         debug: Enable debug logging

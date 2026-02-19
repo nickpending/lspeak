@@ -2,6 +2,7 @@
 
 import logging
 
+from .config import load_config
 from .providers import ProviderRegistry
 from .tts.errors import TTSAPIError, TTSAuthError
 from .tts.pipeline import TTSPipeline
@@ -9,19 +10,22 @@ from .tts.pipeline import TTSPipeline
 logger = logging.getLogger(__name__)
 
 
-async def list_available_voices(provider: str = "elevenlabs") -> None:
+async def list_available_voices(provider: str | None = None) -> None:
     """List all available voices from specified provider.
 
     Prints voices in "Name: voice_id" format to stdout.
 
     Args:
-        provider: Provider name to list voices from
+        provider: Provider name to list voices from. Reads from config if not provided.
 
     Raises:
         TTSAuthError: If API key is not configured
         TTSAPIError: If API call fails
         KeyError: If provider not found
     """
+    config = load_config()
+    provider = provider or config.tts.provider
+
     try:
         provider_class = ProviderRegistry.get(provider)
         provider_instance = provider_class()
@@ -46,11 +50,11 @@ async def list_available_voices(provider: str = "elevenlabs") -> None:
 
 async def speak_text(
     text: str,
-    provider: str = "elevenlabs",
+    provider: str | None = None,
     voice_id: str | None = None,
     output_file: str | None = None,
-    cache: bool = True,
-    cache_threshold: float = 0.95,
+    cache: bool | None = None,
+    cache_threshold: float | None = None,
     debug: bool = False,
     use_daemon: bool = True,
     queue: bool = True,
@@ -60,11 +64,11 @@ async def speak_text(
 
     Args:
         text: Text to convert to speech
-        provider: Provider name to use for synthesis
-        voice_id: Optional voice ID to use. If not provided, uses first available voice
+        provider: Provider name. Reads from config if not provided.
+        voice_id: Voice ID. Reads from config if not provided.
         output_file: Optional file path to save audio. If not provided, plays through speakers
-        cache: Whether to use semantic caching
-        cache_threshold: Similarity threshold for cache hits (0.0-1.0)
+        cache: Whether to use semantic caching. Reads from config if not provided.
+        cache_threshold: Similarity threshold for cache hits. Reads from config if not provided.
         debug: Enable debug logging
         use_daemon: Whether to use daemon for faster response (default True)
         queue: Whether to queue speech in daemon for serial playback (default True)
@@ -77,6 +81,14 @@ async def speak_text(
         ValueError: If text is empty
         KeyError: If provider not found
     """
+    config = load_config()
+    provider = provider or config.tts.provider
+    voice_id = voice_id or config.tts.voice
+    cache = cache if cache is not None else config.cache.enabled
+    cache_threshold = (
+        cache_threshold if cache_threshold is not None else config.cache.threshold
+    )
+
     # Auto-disable cache for long text to prevent embedding model segfaults
     cache_text_limit = (
         500  # Characters - sentence transformers struggle with very long text

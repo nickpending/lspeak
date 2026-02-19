@@ -4,12 +4,13 @@ This module provides a registry pattern for managing TTS providers,
 allowing runtime selection of different TTS backends.
 """
 
-from typing import TYPE_CHECKING, Dict, Type
+from typing import TYPE_CHECKING, ClassVar
 
 if TYPE_CHECKING:
     from .base import TTSProvider
 
 from .elevenlabs import ElevenLabsProvider
+from .kokoro import KokoroProvider
 from .system import SystemTTSProvider
 
 __all__ = ["ProviderRegistry"]
@@ -22,7 +23,7 @@ class ProviderRegistry:
     allowing registration and retrieval by name.
     """
 
-    _providers: dict[str, type["TTSProvider"]] = {}
+    _providers: ClassVar[dict[str, type["TTSProvider"]]] = {}
 
     @classmethod
     def register(cls, name: str, provider_class: type["TTSProvider"]) -> None:
@@ -57,4 +58,5 @@ class ProviderRegistry:
 
 # Register providers
 ProviderRegistry.register("elevenlabs", ElevenLabsProvider)
+ProviderRegistry.register("kokoro", KokoroProvider)
 ProviderRegistry.register("system", SystemTTSProvider)
