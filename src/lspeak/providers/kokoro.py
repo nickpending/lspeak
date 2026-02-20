@@ -14,24 +14,38 @@ from .base import TTSProvider
 
 logger = logging.getLogger(__name__)
 
+# Voice prefix -> lang_code mapping
+LANG_CODES = {"a": "a", "b": "b"}
+
 
 class KokoroProvider(TTSProvider):
     """Kokoro TTS provider using local neural speech synthesis.
 
     Uses the Kokoro-82M model for GPU-accelerated (MPS/CUDA) or CPU-based
     text-to-speech generation. No API key required — runs entirely locally.
+
+    Automatically selects American or British phonemizer based on voice prefix.
     """
 
-    def __init__(self, lang_code: str = "a") -> None:
-        """Initialize Kokoro provider.
+    def __init__(self) -> None:
+        """Initialize Kokoro provider with lazy pipeline creation."""
+        self._device = self._resolve_device()
+        self._pipelines: dict[str, KPipeline] = {}
+        logger.info(f"Kokoro using device: {self._device}")
 
-        Args:
-            lang_code: Language code for phonemizer. 'a' = American English.
+    def _get_pipeline(self, voice: str) -> KPipeline:
+        """Get or create a KPipeline for the given voice's language.
+
+        Pipelines are cached by lang_code so switching between American
+        and British voices doesn't reload the model unnecessarily.
         """
-        self._lang_code = lang_code
-        device = self._resolve_device()
-        logger.info(f"Kokoro using device: {device}")
-        self._pipeline = KPipeline(lang_code=lang_code, device=device)
+        lang_code = LANG_CODES.get(voice[0], "a") if voice else "a"
+        if lang_code not in self._pipelines:
+            logger.info(f"Creating Kokoro pipeline for lang_code='{lang_code}'")
+            self._pipelines[lang_code] = KPipeline(
+                lang_code=lang_code, device=self._device
+            )
+        return self._pipelines[lang_code]
 
     @staticmethod
     def _resolve_device() -> str:
@@ -56,7 +70,7 @@ class KokoroProvider(TTSProvider):
     def _preprocess_text(text: str) -> str:
         """Apply pronunciation overrides from config.
 
-        Replaces words with misaki's inline IPA syntax: word[IPA](/)
+        Replaces words with misaki's inline IPA syntax: [word](/IPA/)
         """
         config = load_config()
         pronunciation = config.tts.pronunciation
@@ -66,12 +80,12 @@ class KokoroProvider(TTSProvider):
             text = re.sub(rf"\b{re.escape(word)}\b", f"[{word}](/{ipa}/)", text)
         return text
 
-    async def synthesize(self, text: str, voice: str = "af_heart") -> bytes:
+    async def synthesize(self, text: str, voice: str = "bf_isabella") -> bytes:
         """Convert text to speech using Kokoro neural TTS.
 
         Args:
             text: Text to convert to speech
-            voice: Kokoro voice ID (e.g., af_heart, am_adam)
+            voice: Kokoro voice ID (e.g., bf_isabella, af_heart, am_adam)
 
         Returns:
             Audio data as bytes (WAV format, 24kHz)
@@ -82,12 +96,13 @@ class KokoroProvider(TTSProvider):
         if not text or not text.strip():
             raise ValueError("Text cannot be empty")
 
-        voice = voice or "af_heart"
+        voice = voice or "bf_isabella"
         text = self._preprocess_text(text)
+        pipeline = self._get_pipeline(voice)
 
         def _generate() -> bytes:
             buf = io.BytesIO()
-            for _, _, audio in self._pipeline(text, voice=voice):
+            for _, _, audio in pipeline(text, voice=voice):
                 if audio is not None:
                     sf.write(buf, audio, 24000, format="WAV")
             buf.seek(0)
@@ -124,5 +139,13 @@ class KokoroProvider(TTSProvider):
                 "am_onyx",
                 "am_puck",
                 "am_santa",
+                "bf_alice",
+                "bf_emma",
+                "bf_isabella",
+                "bf_lily",
+                "bm_daniel",
+                "bm_fable",
+                "bm_george",
+                "bm_lewis",
             ]
         ]
