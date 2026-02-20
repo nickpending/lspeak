@@ -7,7 +7,7 @@ Priority chain: CLI flags > env vars > config file.
 import os
 import sys
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 CONFIG_DIR = Path.home() / ".config" / "lspeak"
@@ -29,6 +29,11 @@ voice = "af_heart"
 
 # Compute device for local models: "auto", "mps" (Apple Silicon), "cuda", "cpu"
 device = "auto"
+
+[tts.pronunciation]
+# Custom word pronunciations (word = "IPA phonemes")
+# Uses Kokoro/misaki inline override syntax
+# Example: Rudy = "IPA_phonemes_here"
 
 [http]
 # Bind address: "127.0.0.1" = localhost only, "0.0.0.0" = allow LAN access
@@ -57,6 +62,7 @@ class TTSConfig:
     provider: str
     voice: str
     device: str
+    pronunciation: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -146,6 +152,9 @@ def load_config() -> LspeakConfig:
         print(f"Edit {CONFIG_PATH} or delete it to regenerate.", file=sys.stderr)
         raise SystemExit(1)
 
+    # Extract pronunciation subtable (excluded from tts scalar fields)
+    pronunciation = tts.get("pronunciation", {})
+
     # Env vars override config file values
     port_str = os.getenv("LSPEAK_HTTP_PORT", str(http_cfg.get("port", "")))
 
@@ -154,6 +163,7 @@ def load_config() -> LspeakConfig:
             provider=os.getenv("LSPEAK_PROVIDER", tts["provider"]),
             voice=os.getenv("LSPEAK_VOICE", tts["voice"]),
             device=os.getenv("LSPEAK_DEVICE", tts.get("device", "auto")),
+            pronunciation=pronunciation,
         ),
         http=HTTPConfig(
             host=os.getenv("LSPEAK_HTTP_HOST", http_cfg["host"]),

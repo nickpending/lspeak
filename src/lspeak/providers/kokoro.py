@@ -3,6 +3,7 @@
 import asyncio
 import io
 import logging
+import re
 
 import soundfile as sf
 import torch
@@ -51,6 +52,20 @@ class KokoroProvider(TTSProvider):
 
         return device
 
+    @staticmethod
+    def _preprocess_text(text: str) -> str:
+        """Apply pronunciation overrides from config.
+
+        Replaces words with misaki's inline IPA syntax: word[IPA](/)
+        """
+        config = load_config()
+        pronunciation = config.tts.pronunciation
+        if not pronunciation:
+            return text
+        for word, ipa in pronunciation.items():
+            text = re.sub(rf"\b{re.escape(word)}\b", f"[{word}](/{ipa}/)", text)
+        return text
+
     async def synthesize(self, text: str, voice: str = "af_heart") -> bytes:
         """Convert text to speech using Kokoro neural TTS.
 
@@ -68,6 +83,7 @@ class KokoroProvider(TTSProvider):
             raise ValueError("Text cannot be empty")
 
         voice = voice or "af_heart"
+        text = self._preprocess_text(text)
 
         def _generate() -> bytes:
             buf = io.BytesIO()
