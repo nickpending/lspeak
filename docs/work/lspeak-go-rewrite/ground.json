@@ -1,0 +1,50 @@
+{
+  "impacted": [
+    {"path": "src/", "role": "The Python package being deleted (CLI, daemon, cache, providers)."},
+    {"path": "tests/", "role": "Python tests being deleted with the package."},
+    {"path": "pyproject.toml", "role": "Python build manifest being deleted."},
+    {"path": "uv.lock", "role": "Lockfile being deleted, superseding rudy's uncommitted lock bump."},
+    {"path": "README.md", "role": "Rewritten for the Go client and Kokoro-FastAPI service."},
+    {"path": "docs/IDEA.md", "role": "Relevant parts rewritten honestly (no cache, no daemon, no ElevenLabs)."},
+    {"path": ".gitignore", "role": "rudy's uncommitted secrets/agent-workspace block plus ember init's lines, committed with this work."},
+    {"path": "go.mod", "role": "New Go module; its presence switches ember's gate to the Go checks."},
+    {"path": "main.go", "role": "New: the lspeak binary (flags, enqueue, drainer, -o, providers)."},
+    {"path": "install.sh", "role": "New: builds and installs the binary to ~/.local/bin and writes/loads the Kokoro-FastAPI LaunchAgent."}
+  ],
+  "constraints": [
+    {"tag": "RULE", "path": "/Users/rudy/.local/state/ember/projects/ember/artifacts/lspeak-go-rewrite-brief.md", "line": 33, "text": "The Kokoro-FastAPI LaunchAgent is written by lspeak's own install, never by chezmoi, because chezmoi pushes Library/LaunchAgents to every darwin host and the venv exists only here."},
+    {"tag": "RULE", "path": "/Users/rudy/.local/state/ember/projects/ember/artifacts/lspeak-go-rewrite-brief.md", "line": 37, "text": "The service binds 127.0.0.1, not start-gpu_mac.sh's 0.0.0.0; the server has no auth."},
+    {"tag": "OBSERVED", "path": "/Users/rudy/.local/share/kokoro-fastapi/start-gpu_mac.sh", "line": 7, "text": "The Mac start script exports USE_GPU, PYTHONPATH, MODEL_DIR, VOICES_DIR, WEB_PLAYER_PATH, DEVICE_TYPE=mps and PYTORCH_ENABLE_MPS_FALLBACK (lines 7-15) before running uvicorn api.src.main:app (line 20)."},
+    {"tag": "RULE", "path": "/Users/rudy/.local/state/ember/projects/ember/artifacts/lspeak-go-rewrite-brief.md", "line": 43, "text": "Drainer: flock LOCK_EX|LOCK_NB or exit; drain in name order re-listing after each item; unlock; re-check the dir and loop if non-empty."},
+    {"tag": "RULE", "path": "/Users/rudy/.local/state/ember/projects/ember/artifacts/lspeak-go-rewrite-brief.md", "line": 46, "text": "A failed queue item is logged to ~/.local/state/lspeak/lspeak.log and removed, never retried forever."},
+    {"tag": "RULE", "path": "/Users/rudy/.local/state/ember/projects/ember/artifacts/lspeak-go-rewrite-brief.md", "line": 50, "text": "-o PATH writes the file and only then exits."},
+    {"tag": "RULE", "path": "/Users/rudy/.local/state/ember/projects/ember/artifacts/lspeak-go-rewrite-brief.md", "line": 53, "text": "--provider system -o briefing-<date>.mp3 writes WAV bytes into the .mp3 path, keeping prismis's existing behavior."},
+    {"tag": "RULE", "path": "/Users/rudy/.local/state/ember/projects/ember/artifacts/lspeak-go-rewrite-brief.md", "line": 62, "text": "Any flag not in the kept set is refused, naming it; elevenlabs and --model are refused naming that they were dropped (lines 58, 61)."},
+    {"tag": "RULE", "path": "/Users/rudy/.local/state/ember/projects/ember/artifacts/lspeak-go-rewrite-brief.md", "line": 76, "text": ".sable/ is untracked and not ours; leave it alone."},
+    {"tag": "OBSERVED", "path": "src/lspeak/providers/kokoro.py", "line": 79, "text": "The old pronunciation rewrite applies re.sub(rf\"\\b{re.escape(word)}\\b\", f\"[{word}](/{ipa}/)\") per entry in config (TOML) order; Python str \\b is Unicode-aware."},
+    {"tag": "INFERENCE", "path": "src/lspeak/providers/kokoro.py", "line": 79, "text": "Go's regexp \\b is ASCII-only and Go maps iterate in random order, so a faithful port needs Unicode word-boundary checks and must apply entries in file order (toml.MetaData.Keys), or a key like 'José' or overlapping keys behave differently from the old tool."},
+    {"tag": "OBSERVED", "path": "/Users/rudy/.config/lspeak/config.toml", "line": 21, "text": "rudy's config sets Rudy = \"ɹˈudi\" under [tts.pronunciation], provider kokoro, voice bf_emma, plus now-dead [http] and [cache] tables the new client must tolerate."},
+    {"tag": "OBSERVED", "path": "/Users/rudy/development/projects/bench/hooks/shared/tts.ts", "line": 83, "text": "bench's Stop hook runs lspeak -- <sentence> once per sentence and awaits each, so per-call latency is paid per sentence."},
+    {"tag": "OBSERVED", "path": "/Users/rudy/development/projects/bench/hooks/classifier.ts", "line": 76, "text": "The classifier spawns lspeak -- <title> detached with ignored stdio."},
+    {"tag": "OBSERVED", "path": "/Users/rudy/development/projects/bench/cli/src/daemon/dispatch.ts", "line": 323, "text": "bench daemon dispatch runs lspeak <line> with no -- and treats a non-zero exit as failure."},
+    {"tag": "OBSERVED", "path": "/Users/rudy/development/projects/momentum/hooks/momentum-stop-hook.ts", "line": 366, "text": "momentum passes --no-cache, --provider, --voice, --cache-threshold and --model (lines 366-386); it was last committed 2026-08-23 and is not referenced in ~/.claude/settings.json."},
+    {"tag": "OBSERVED", "path": "/Users/rudy/development/projects/prismis/daemon/src/prismis_daemon/audio.py", "line": 178, "text": "prismis polls up to 30 s for the -o file after lspeak exits, and defaults audio_provider to system (line 229)."},
+    {"tag": "OBSERVED", "path": "/Users/rudy/.local/share/kokoro-fastapi/api/src/structures/schemas.py", "line": 195, "text": "POST /v1/audio/speech accepts response_format mp3|opus|aac|flac|wav|pcm."},
+    {"tag": "INFERENCE", "path": "/Users/rudy/.local/state/ember/projects/ember/artifacts/lspeak-go-rewrite-brief.md", "line": 32, "text": "Kokoro-FastAPI's text normalizer may treat [Rudy](/ɹˈudi/) as literal text even though the request returns 200, so only rudy's listen check (D5.4) settles it."},
+    {"tag": "RULE", "path": "/Users/rudy/.local/share/ember/checkout/shared/verify/src/verify.ts", "line": 322, "text": "Once go.mod exists ember's gate runs go vet ./..., staticcheck ./..., gofmt -l . (fails on any output) and go test ./... (lines 322-332)."},
+    {"tag": "OBSERVED", "path": "/Users/rudy/.local/share/bench/settings.json", "line": 10, "text": "bench.tts.enabled is false today and must stay false until every D5 proof holds."}
+  ],
+  "adrs": {"scanned": 0, "binding": []},
+  "related": {
+    "query": "gh issue list --state open --limit 50",
+    "issues": [
+      {"number": 3, "why": "-o with a relative path saved into the old daemon's cwd and printed success regardless; a synchronous, daemon-free -o resolved in the caller's own cwd answers both defects, so this work closes it."}
+    ]
+  },
+  "reuse": [
+    {"path": "/Users/rudy/.local/share/kokoro-fastapi", "what": "Kokoro-FastAPI v0.9.0, installed with model and voices; the client calls its /v1/audio/speech."},
+    {"path": "/usr/bin/say", "what": "macOS say plus afconvert for the system provider, and afplay for playback."},
+    {"path": "/Users/rudy/Library/LaunchAgents/com.bench.daemon.plist", "what": "bench's self-installed LaunchAgent shape (RunAtLoad, KeepAlive, log paths, ThrottleInterval) to copy for the Kokoro plist."}
+  ],
+  "open": []
+}
