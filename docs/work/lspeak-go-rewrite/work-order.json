@@ -1,0 +1,112 @@
+{
+  "workOrder": "lspeak-go-rewrite",
+  "what": "Replace the crashing Python lspeak with a Go lspeak client over a local Kokoro-FastAPI LaunchAgent, keeping every live caller's command-line contract.",
+  "why": "Python lspeak segfaults on every call since 2026-10-06 (three OpenMP copies in one process), costing every bench Stop hook about 35 s and muting bench speech. Design: docs/work/lspeak-go-rewrite/design.md. Read it with the brief at /Users/rudy/.local/state/ember/projects/ember/artifacts/lspeak-go-rewrite-brief.md and docs/work/lspeak-go-rewrite/ground.json before planning.",
+  "criteria": [
+    {
+      "id": "C1",
+      "given": "the built lspeak binary and an empty queue dir under a temp HOME",
+      "when": "it is run with an unknown flag (--bogus), with --model eleven_turbo_v2_5, with -p elevenlabs, with --list-voices, or with no text and a tty or empty stdin",
+      "then": "each exits non-zero, stderr names the flag or says elevenlabs/--model were dropped (or that no text was given), and nothing is written to the queue dir"
+    },
+    {
+      "id": "C2",
+      "given": "the built binary under a temp HOME with no drainer able to play (queue inspected before draining)",
+      "when": "each live caller's exact argv is run: `lspeak -- <sentence>` (bench and sable tts.ts:83, classifier.ts:76, sable-format-reminder.ts:162), `lspeak <line>` with no -- (bench dispatch.ts:323), `lspeak --no-cache --provider kokoro --voice bf_emma --cache-threshold 0.95 <sentence>` (momentum without --model), and `echo text | lspeak` (stdin)",
+      "then": "each exits 0 and leaves one queue item whose text, provider and voice match the argv (positional words joined with single spaces; config voice when -v is absent)"
+    },
+    {
+      "id": "C3",
+      "given": "a config.toml with [tts.pronunciation] Rudy = \"ɹˈudi\" and a second entry with a non-ASCII key",
+      "when": "Kokoro-bound text 'Rudy, Rudyard and rudy met Rudy.' and text using the non-ASCII key are prepared, and the same text is prepared for the system provider",
+      "then": "Kokoro text becomes '[Rudy](/ɹˈudi/), Rudyard and rudy met [Rudy](/ɹˈudi/).' (whole word, case-sensitive, entries applied in file order, Unicode word boundaries as in src/lspeak/providers/kokoro.py:79) and the system-provider text is unchanged"
+    },
+    {
+      "id": "C4",
+      "given": "the Go lspeak installed at ~/.local/bin/lspeak and the Kokoro service warm",
+      "when": "`lspeak -- \"text\"` (the bench Stop hook path) is run ten times back to back with wall time measured per call",
+      "then": "every call exits 0 and returns in under 250 ms (D5.6), with the measured times recorded"
+    },
+    {
+      "id": "C5",
+      "given": "the Kokoro service warm (one prior request served) and nothing playing",
+      "when": "`lspeak -- \"<one sentence>\"` is run and the time from invocation to the first afplay process appearing is measured by sampling the process table",
+      "then": "time to first audio through lspeak is measured and recorded (D5.1) and is under 1 s"
+    },
+    {
+      "id": "C6",
+      "given": "the Kokoro service warm and nothing playing",
+      "when": "three sentences are sent as three awaited `lspeak -- <s>` calls back to back (as bench tts.ts awaits each) while the process table is sampled every 20 ms",
+      "then": "exactly three afplay runs are observed, never two at once, in the same order the calls were made (each afplay's temp path names its queue item), and the queue dir ends empty (D5.2)"
+    },
+    {
+      "id": "C7",
+      "given": "the Kokoro service warm and nothing playing",
+      "when": "two callers each send two sentences concurrently (both started at once) while the process table is sampled every 20 ms",
+      "then": "all four items play, never two afplay processes at once, each caller's two sentences play in that caller's order, the queue ends empty and lspeak.log gains no error (D5.3)"
+    },
+    {
+      "id": "C8",
+      "given": "the Kokoro service running and the installed lspeak with rudy's ~/.config/lspeak/config.toml",
+      "when": "`lspeak -- \"Hello Rudy, this is Sable.\"` is played to rudy",
+      "then": "rudy confirms by ear in this session that 'Rudy' is pronounced right (D5.4)"
+    },
+    {
+      "id": "C9",
+      "given": "a fresh empty cwd and no file named briefing-2026-10-07.mp3",
+      "when": "prismis's exact command `lspeak --provider system --no-cache -o briefing-2026-10-07.mp3 <script>` is run with a relative path",
+      "then": "the moment the process exits (no polling) the file exists in the caller's cwd, a .wav-named copy reads as WAVE with duration > 0 under afinfo, stdout printed 'Audio saved to briefing-2026-10-07.mp3' only after the write, and no temp file is left beside it (D5.5, issue #3)"
+    },
+    {
+      "id": "C10",
+      "given": "a target directory that does not exist or is not writable, and separately the Kokoro service stopped",
+      "when": "`lspeak -o <that dir>/x.wav text` is run, and `lspeak -p kokoro -o y.mp3 text` is run with the service down",
+      "then": "each exits non-zero with an error naming the cause, no output file or temp file is left, and no 'Audio saved' line is printed"
+    },
+    {
+      "id": "C11",
+      "given": "the Kokoro service warm",
+      "when": "`lspeak -p kokoro -o out.mp3 text` and `lspeak -p kokoro -o out.wav text` are run",
+      "then": "afinfo reads out.mp3 as MPEG audio and out.wav as WAVE, both with duration > 0, each present when the process exits"
+    },
+    {
+      "id": "C12",
+      "given": "the Kokoro service stopped (launchctl bootout) and an empty queue",
+      "when": "`lspeak -- \"unreachable\"` is run",
+      "then": "the caller exits 0 in under 250 ms, within 5 s the queue dir is empty, and ~/.local/state/lspeak/lspeak.log has an error line naming the service URL and the item's text; no item is retried"
+    },
+    {
+      "id": "C13",
+      "given": "install.sh has been run on this Mac",
+      "when": "launchd state, the listening socket and the service are inspected, then the uvicorn process is killed",
+      "then": "~/Library/LaunchAgents/com.lspeak.kokoro.plist exists with RunAtLoad and KeepAlive, the service listens only on 127.0.0.1:8880 (lsof), GET /health returns 200, logs land under ~/.local/state/kokoro-fastapi/, and after the kill launchd restarts it and /health returns 200 again"
+    },
+    {
+      "id": "C14",
+      "given": "the work committed and pushed to main",
+      "when": "the repo and this Mac are inspected",
+      "then": "src/, tests/, pyproject.toml and uv.lock are absent from HEAD; .gitignore carries rudy's secrets and agent-workspace block; .sable/ is untouched and untracked; README.md and docs/IDEA.md describe the Go client and Kokoro-FastAPI service with no cache, daemon, HTTP API or ElevenLabs claims; `uv tool list` has no lspeak; ~/.local/bin/lspeak is the Go Mach-O binary, not a symlink into uv; ~/.cache/lspeak no longer exists; and ember's gate (go vet, staticcheck, gofmt -l, go test) passes"
+    }
+  ],
+  "issues": [],
+  "outOfScope": [
+    "No semantic cache: every sentence is synthesized fresh (about 0.2 s warm per the brief).",
+    "Speak mode reports no error to its caller: a down service or failed item shows only in ~/.local/state/lspeak/lspeak.log.",
+    "Playback starts only after a whole sentence is synthesized; no streaming into the player.",
+    "ElevenLabs, --model, --file, --list-voices, --no-queue, --queue-status, --daemon-*, --download-models, --debug and the HTTP API are gone; momentum calls that pass --model will be refused.",
+    "Non-macOS hosts are unsupported (afplay, say, afconvert, launchd).",
+    "Bounded wait while the Kokoro service is booting or restarting (connection refused), so a sentence spoken in that window is not dropped.",
+    "Streaming synthesis into the player to cut TTFA below one whole sentence's synthesis time.",
+    "Moving playback to the central house speech processor (Music Assistant play_announcement); only the client's playback step should change.",
+    "Updating momentum's hooks (momentum-stop-hook.ts:386, shared/voice-loader.ts:142) to stop passing --model; momentum is not wired into ~/.claude/settings.json."
+  ],
+  "stakes": [
+    "The caller contract is preserved flag for flag: every invocation in bench tts.ts:83, classifier.ts:76, dispatch.ts:323, sable tts.ts:83 and prismis audio.py:152-164 runs unchanged.",
+    "Speak mode never waits on synthesis or playback, so the bench Stop hook pays only process start, a file write and a fork per sentence.",
+    "Exactly one drainer plays at a time and plays in enqueue order; the flock plus the post-unlock re-check means no item is stranded and no two callers overlap.",
+    "A queue item carries its provider and voice with its text, so -p and -v reach the drainer that plays it.",
+    "-o is synchronous and atomic: the file appears complete or not at all, relative paths land in the caller's cwd, and the success line is printed only after the write, which fixes issue #3.",
+    "No ML stack runs in the lspeak process; the only OpenMP-bearing process is the Kokoro-FastAPI service with its single libomp.",
+    "The Kokoro service is owned by lspeak's install.sh on this host only, bound to 127.0.0.1."
+  ]
+}
