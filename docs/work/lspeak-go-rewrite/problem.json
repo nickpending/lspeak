@@ -1,0 +1,17 @@
+{
+  "what": "Replace the crashing Python lspeak with a Go lspeak client that speaks through a local Kokoro-FastAPI service run as a LaunchAgent, keeping the command-line contract every existing caller uses.",
+  "why": "Python lspeak has segfaulted on every call since 2026-10-06 21:03:58 (three OpenMP copies from torch, faiss-cpu and scikit-learn in one process), which made every bench Stop hook wait about 35 s and forced bench speech off.",
+  "decided": [
+    "D1: the engine is Kokoro-FastAPI v0.9.0 at ~/.local/share/kokoro-fastapi, run by a LaunchAgent that lspeak's own install writes (not chezmoi), bound to 127.0.0.1:8880 with the start-gpu_mac.sh environment, RunAtLoad and KeepAlive, logs under ~/.local/state/kokoro-fastapi/.",
+    "D2: speak mode (no -o) atomically enqueues the request into ~/.local/state/lspeak/queue/<unixnano>-<pid> (tmp + rename), spawns a detached re-exec of itself as drainer, and exits 0 immediately.",
+    "D2: the drainer takes flock(LOCK_EX|LOCK_NB) on a lockfile or exits, drains in name order re-listing after each item, unlocks, re-checks the dir and loops if anything is there; each item is POSTed for WAV, written to a temp file and played with afplay; errors go to ~/.local/state/lspeak/lspeak.log and a failed item is removed, never retried forever.",
+    "D2: [tts.pronunciation] entries in ~/.config/lspeak/config.toml are rewritten whole-word and case-sensitive to [word](/ipa/), Kokoro provider only, the same rewrite providers/kokoro.py:70-81 did.",
+    "D2: -o PATH is synchronous and exits only after the file exists; Kokoro picks response_format from the extension (mp3/wav/opus/flac/aac, else wav); --provider system runs say -o x.aiff [-v voice] then afconvert -f WAVE -d LEI16 into PATH whatever its name, which keeps prismis's WAV-in-.mp3 behavior.",
+    "D2: flags kept are --/positional text (joined with spaces), stdin when no args and not a tty, -o/--output, -v/--voice, -p/--provider kokoro|system, --no-cache and --cache-threshold as accepted no-ops; elevenlabs and --model are refused naming that they were dropped, and any other flag is refused naming it.",
+    "D3: Go, rewritten in place in the lspeak repo with BurntSushi/toml; src/, tests/, pyproject.toml and uv.lock are deleted; README.md and the relevant parts of docs/IDEA.md are rewritten honestly; rudy's uncommitted .gitignore is committed with this work; .sable/ is left alone.",
+    "D4: the semantic cache (and ~/.cache/lspeak after cutover), daemon socket, HTTP API, ElevenLabs, and the flags --file, --list-voices, --no-queue, --queue-status, --daemon-*, --download-models and --debug are dropped; at cutover the old tool is removed with uv tool uninstall lspeak and the Go binary is installed to ~/.local/bin/lspeak.",
+    "D5: done only when each proof is observed: TTFA from a warm service measured through lspeak; three back-to-back sentences play in order; two concurrent callers do not overlap; rudy hears 'Rudy' pronounced right; prismis's exact -o command writes a playable file and exits after it exists; the bench Stop hook path lspeak -- \"text\" returns in well under a second.",
+    "Bench speech (~/.local/share/bench/settings.json bench.tts.enabled) stays false until every D5 proof holds, then is set true and a real turn is confirmed to speak."
+  ],
+  "open": []
+}
