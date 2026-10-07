@@ -172,12 +172,28 @@ temp/
 
 # Workflow/development artifacts
 .workflow/
+
+# Secrets — never commit
 .env.*
 !.env.example
+!.env.sample
 *.key
 *.pem
+*.p12
+*.pfx
+*_api_key*
+*_secret*
 credentials.json
 secrets/
+
+# Agent workspace
+.mcp.json
+.corpus/
+
+# Spec Kit — ephemeral extension state only; everything else under .specify/ is committed
+.specify/extensions/.cache/
+.specify/extensions/.backup/
+.specify/extensions/*/local-config.yml
 .claude/worktrees/
 docs/work/*/review.diff
 docs/work/*/job-*.diff
