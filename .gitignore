@@ -203,3 +203,6 @@ docs/work/*/.journal.checksum
 docs/work/*/results/
 docs/work/*/shape/
 .ruff_cache/
+
+# Go build output
+/lspeak
