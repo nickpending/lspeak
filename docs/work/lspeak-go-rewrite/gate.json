@@ -1,0 +1,87 @@
+{
+  "scrutiny": [
+    {
+      "test": "0 purpose: docs/IDEA.md says lspeak is the clean unix tool to pipe text to high-quality speech; does this advance it?",
+      "failureCase": "The rewrite keeps a tool that still cannot speak, or drops a capability a live caller uses.",
+      "result": "held"
+    },
+    {
+      "test": "1 owner: the brief (D1-D5) owns this decision; does the design contradict it?",
+      "failureCase": "Design changes a decided flag, path, queue rule or provider behavior.",
+      "result": "held"
+    },
+    {
+      "test": "2/6 assumption: Kokoro-FastAPI honors [word](/ipa/) rather than reading it as text.",
+      "failureCase": "Server normalizer strips the markup and 'Rudy' is read literally.",
+      "result": "held"
+    },
+    {
+      "test": "2/6 assumption: say -o x.aiff then afconvert -f WAVE -d LEI16 into a .mp3 path yields a valid WAV.",
+      "failureCase": "afconvert picks the type from the .mp3 extension or refuses.",
+      "result": "held"
+    },
+    {
+      "test": "5 playable: what plays prismis's briefing file?",
+      "failureCase": "Proof checks afplay, which refuses WAV-in-.mp3 ('AudioFileOpen failed dta?', measured), when prismis actually serves it at /audio (api.py:1775) to a browser <audio> element (static/index.html:1566) that sniffs content. The design is unchanged; the work order's -o criterion observes a valid WAVE via afinfo on a .wav-named copy instead of afplay on the .mp3.",
+      "result": "held"
+    },
+    {
+      "test": "7 consumers: rg over ~/development/projects for lspeak invocations.",
+      "failureCase": "A live caller uses a flag or shape the parser refuses. The sweep found two callers beyond the brief's inventory, sable-format-reminder.ts:162 (lspeak -- <title>, detached) and momentum shared/voice-loader.ts:142 (same flags as the stop hook); both use the kept contract, so the design holds.",
+      "result": "held"
+    },
+    {
+      "test": "3 degradation: what gets worse?",
+      "failureCase": "Speak-mode errors become invisible to callers, and speech in the service's ~9 s boot window is dropped; both are the decided D2 behavior (failed item logged and removed).",
+      "result": "held"
+    },
+    {
+      "test": "4 reuse: extends Kokoro-FastAPI, say/afconvert/afplay and bench's plist shape rather than building a parallel engine.",
+      "failureCase": "A second synthesis stack inside lspeak.",
+      "result": "held"
+    },
+    {
+      "test": "8/12 shape: the drainer is marked by LSPEAK_DRAIN=1 in its environment, not a hidden argv flag.",
+      "failureCase": "A hidden flag widens the refused-flag surface and could be passed by a caller.",
+      "result": "held"
+    },
+    {
+      "test": "9 drift: port 8880 appears in the plist and the default [kokoro] url.",
+      "failureCase": "Someone changes one and not the other; accepted out loud, the config key exists for exactly that move.",
+      "result": "held"
+    },
+    {
+      "test": "10 reversibility: git revert restores the Python tree; uv tool uninstall and the 2 GB cache delete are one-way.",
+      "failureCase": "Deleting the cache before the Go client is proven.",
+      "result": "held"
+    },
+    {
+      "test": "11 class: three OpenMP copies in one process; sweep for siblings.",
+      "failureCase": "Another ML-stack process still loads in a caller path. After cutover no lspeak path imports torch/faiss/sklearn; only the service holds torch's single libomp. Go is the only stack in this repo; claude and pi both reach lspeak through the same bench hooks.",
+      "result": "held"
+    },
+    {
+      "test": "13/19 one fact, observed: response_format comes from the -o extension in one place; FIFO is observed from queue names written in enqueue order.",
+      "failureCase": "Order inferred from a proxy such as mtime.",
+      "result": "held"
+    },
+    {
+      "test": "20 walk: bench Stop hook speaks three sentences, each lspeak call awaited.",
+      "failureCase": "Call 2's drainer finds the lock held and exits while drainer 1 is between its final list and unlock, stranding call 2; the post-unlock re-check catches it.",
+      "result": "held"
+    },
+    {
+      "test": "20 walk: prismis generate with --provider system --no-cache -o <abs>/briefing-<date>.mp3.",
+      "failureCase": "lspeak exits before the file exists (old behavior, issue #3). The temp-then-rename write makes the file exist complete before exit.",
+      "result": "held"
+    }
+  ],
+  "decisions": [],
+  "verdict": "accept",
+  "carried": [
+    "Bounded wait while the Kokoro service is booting or restarting (connection refused), so a sentence spoken in that window is not dropped.",
+    "Streaming synthesis into the player to cut TTFA below one whole sentence's synthesis time.",
+    "Moving playback to the central house speech processor (Music Assistant play_announcement); only the client's playback step should change.",
+    "Updating momentum's hooks (momentum-stop-hook.ts:386, shared/voice-loader.ts:142) to stop passing --model; momentum is not wired into ~/.claude/settings.json."
+  ]
+}
