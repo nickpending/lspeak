@@ -172,3 +172,18 @@ temp/
 
 # Workflow/development artifacts
 .workflow/
+.env.*
+!.env.example
+*.key
+*.pem
+credentials.json
+secrets/
+.claude/worktrees/
+docs/work/*/review.diff
+docs/work/*/job-*.diff
+docs/work/*/.journal.lock
+docs/work/*/journal.jsonl
+docs/work/*/.journal.checksum
+docs/work/*/results/
+docs/work/*/shape/
+.ruff_cache/
